@@ -2,6 +2,10 @@ package bandwidth
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
 
 	//	"encoding/json"
 	//	"fmt"
@@ -15,8 +19,14 @@ import (
 	//	"github.com/go-errors/errors"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
+
 	//	"github.com/nyaruka/courier/utils"
 	//	"github.com/nyaruka/gocommon/urns"
+	validator "gopkg.in/go-playground/validator.v9"
+)
+
+var (
+	validate = validator.New()
 )
 
 var apiURL = "https://messaging.bandwidth.com"
@@ -42,18 +52,18 @@ func (h *handler) Initialize(s courier.Server) error {
 
 // receiveMessage is our HTTP handler function for incoming messages
 func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	payload := &incomingMessage{}
-	err := handlers.DecodeAndValidateJSON(payload, r)
+	var payload []incomingMessage
+	err := DecodeAndValidateJSONArray(&payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
 	// no message? ignore this
-	if payload.Message.MessageID == "" {
+	if payload[0].Message.MessageID == "" {
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring request, no message")
 	}
 
-	handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, payload.Message.Text)
+	handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, payload[0].Message.Text)
 
 	return nil, nil
 }
@@ -65,6 +75,30 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	status.SetStatus(courier.MsgWired)
 
 	return status, nil
+}
+
+func DecodeAndValidateJSONArray(envelope *[]incomingMessage, r *http.Request) error {
+	// read our body
+	body, err := ioutil.ReadAll(io.LimitReader(r.Body, 100000))
+	defer r.Body.Close()
+	if err != nil {
+		return fmt.Errorf("unable to read request body: %s", err)
+	}
+
+	// try to decode our envelope
+	if err = json.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("unable to parse request JSON: %s", err)
+	}
+
+	callback := (*envelope)[0]
+
+	// check our input is valid
+	err = validate.Struct(callback)
+	if err != nil {
+		return fmt.Errorf("request JSON doesn't match required schema: %s", err)
+	}
+
+	return nil
 }
 
 /*
