@@ -2,20 +2,21 @@ package bandwidth
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/buger/jsonparser"
-	"github.com/go-errors/errors"
+	//	"encoding/json"
+	//	"fmt"
+	"net/http"
+	//	"net/url"
+	//	"strconv"
+	//	"strings"
+	//	"time"
+
+	//	"github.com/buger/jsonparser"
+	//	"github.com/go-errors/errors"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/utils"
-	"github.com/nyaruka/gocommon/urns"
+	//	"github.com/nyaruka/courier/utils"
+	//	"github.com/nyaruka/gocommon/urns"
 )
 
 var apiURL = "https://messaging.bandwidth.com"
@@ -52,7 +53,18 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring request, no message")
 	}
 
-	handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Yahoo")
+	handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, payload.Message.Text)
+
+	return nil, nil
+}
+
+func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	// the status that will be written for this message
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
+
+	status.SetStatus(courier.MsgWired)
+
+	return status, nil
 }
 
 /*
@@ -85,19 +97,19 @@ User-Agent: BandwidthAPI/v2
 */
 
 type incomingMessage struct {
-	Type string `json:"type" validate:"required"`
-	Time string `json:"time"`
+	Type        string `json:"type" validate:"required"`
+	Time        string `json:"time"`
 	Description string `json:"description"`
-	To string `json:"to"`
-	Message  struct {
-		MessageID string `json:"id"`
-		Time string `json:"time"`
-		To string `json:"to"`
-		From string `json:"from"`
-		Text string `json:"text"`
-		Application string `json:"applicationId"`
-		Owner string `json:"owner"`
-		Direction string `json:"direction"`
-      	SegmentCount string `json:"segmentCount"`
+	To          string `json:"to"`
+	Message     struct {
+		MessageID    string   `json:"id"`
+		Time         string   `json:"time"`
+		To           []string `json:"to"`
+		From         string   `json:"from"`
+		Text         string   `json:"text"`
+		Application  string   `json:"applicationId"`
+		Owner        string   `json:"owner"`
+		Direction    string   `json:"direction"`
+		SegmentCount int      `json:"segmentCount"`
 	} `json:"message"`
 }
