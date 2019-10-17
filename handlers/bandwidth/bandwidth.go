@@ -6,22 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-
-	//	"encoding/json"
-	//	"fmt"
 	"net/http"
-	//	"net/url"
-	//	"strconv"
-	//	"strings"
-	//	"time"
 
-	//	"github.com/buger/jsonparser"
-	//	"github.com/go-errors/errors"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/gocommon/urns"
 
-	//	"github.com/nyaruka/courier/utils"
-	//	"github.com/nyaruka/gocommon/urns"
 	validator "gopkg.in/go-playground/validator.v9"
 )
 
@@ -53,7 +43,7 @@ func (h *handler) Initialize(s courier.Server) error {
 // receiveMessage is our HTTP handler function for incoming messages
 func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	var payload []incomingMessage
-	err := DecodeAndValidateJSONArray(&payload, r)
+	err := DecodeAndValidateBWPayload(&payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
@@ -63,9 +53,16 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring request, no message")
 	}
 
-	handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, payload[0].Message.Text)
+	var urn urns.URN
+	urn, err = urns.NewURNFromParts(urns.TelScheme, payload[0].Message.From, "", "")
 
-	return nil, nil
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload[0].Message.Text).WithExternalID(payload[0].Message.MessageID)
+
+	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -77,7 +74,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	return status, nil
 }
 
-func DecodeAndValidateJSONArray(envelope *[]incomingMessage, r *http.Request) error {
+func DecodeAndValidateBWPayload(envelope *[]incomingMessage, r *http.Request) error {
 	// read our body
 	body, err := ioutil.ReadAll(io.LimitReader(r.Body, 100000))
 	defer r.Body.Close()
