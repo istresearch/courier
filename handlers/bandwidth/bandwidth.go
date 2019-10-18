@@ -93,7 +93,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, fmt.Errorf("invalid application ID config")
 	}
 
-	phoneNum := msg.Channel().OrgConfigForKey("BW_PHONE_NUMBER", "")
+	phoneNum := msg.Channel().Address()
 	if phoneNum == "" {
 		return nil, fmt.Errorf("invalid phone num config")
 	}
@@ -104,7 +104,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	for _, part := range parts {
 		payload := outgoingMessage{}
 		payload.To = append(payload.To, msg.URN().Path())
-		payload.From = phoneNum.(string)
+		payload.From = phoneNum
 		payload.Text = part
 		payload.Application = applicationID.(string)
 
