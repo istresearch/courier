@@ -1,6 +1,7 @@
 package bandwidth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,13 +11,15 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
 
 	validator "gopkg.in/go-playground/validator.v9"
 )
 
 var (
-	validate = validator.New()
+	maxMsgLength = 2048
+	validate     = validator.New()
 )
 
 var apiURL = "https://messaging.bandwidth.com"
@@ -66,8 +69,61 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	// the status that will be written for this message
+	authToken := msg.Channel().ConfigForKey(courier.ConfigAuthToken, "")
+	if authToken == "" {
+		return nil, fmt.Errorf("invalid auth token config")
+	}
+
+	authSecret := msg.Channel().OrgConfigForKey("BW_ACCOUNT_SECRET", "")
+	if authSecret == "" {
+		return nil, fmt.Errorf("invalid auth secret config")
+	}
+
+	accountId := msg.Channel().ConfigForKey("account_sid", "")
+	if accountId == "" {
+		return nil, fmt.Errorf("invalid account ID config")
+	}
+
+	applicationID := msg.Channel().ConfigForKey("application_sid", "")
+	if applicationID == "" {
+		return nil, fmt.Errorf("invalid application ID config")
+	}
+
+	phoneNum := msg.Channel().OrgConfigForKey("BW_PHONE_NUMBER", "")
+	if phoneNum == "" {
+		return nil, fmt.Errorf("invalid phone num config")
+	}
+
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
+
+	parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
+	for _, part := range parts {
+		payload := outgoingMessage{}
+		payload.To = append(payload.To, msg.URN().Path())
+		payload.From = phoneNum.(string)
+		payload.Text = part
+		payload.Application = applicationID.(string)
+
+		jsonBody, err := json.Marshal(payload)
+		if err != nil {
+			return status, err
+		}
+
+		sendURL := fmt.Sprintf("%s/api/v2/users/%s/messages", apiURL, accountId)
+		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
+		req.Header.Add("Content-Type", "application/json; charset=utf-8")
+		req.Header.Set("Accept", "application/json")
+		req.SetBasicAuth(authToken.(string), authSecret.(string))
+
+		rr, err := utils.MakeHTTPRequest(req)
+
+		// record our status and log
+		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		status.AddLog(log)
+		if err != nil {
+			return status, nil
+		}
+	}
 
 	status.SetStatus(courier.MsgWired)
 
@@ -143,4 +199,12 @@ type incomingMessage struct {
 		Direction    string   `json:"direction"`
 		SegmentCount int      `json:"segmentCount"`
 	} `json:"message"`
+}
+
+type outgoingMessage struct {
+	To          []string `json:"to"`
+	From        string   `json:"from"`
+	Text        string   `json:"text"`
+	Application string   `json:"applicationId"`
+	Tag         string   `json:"tag"`
 }
