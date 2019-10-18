@@ -56,6 +56,10 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring request, no message")
 	}
 
+	if payload[0].Type != "message-received" {
+		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring non received request, no message")
+	}
+
 	var urn urns.URN
 	urn, err = urns.NewURNFromParts(urns.TelScheme, payload[0].Message.From, "", "")
 
