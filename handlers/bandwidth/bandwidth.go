@@ -44,7 +44,7 @@ func (h *handler) Initialize(s courier.Server) error {
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
-func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {	
 	var payload []incomingMessage
 	err := DecodeAndValidateBWPayload(&payload, r)
 	if err != nil {
@@ -67,7 +67,13 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload[0].Message.Text).WithExternalID(payload[0].Message.MessageID)
+	real_channel, err := h.Server().Backend().GetChannelByAddress(ctx, courier.ChannelType("BWD"), payload[0].To)
+
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	msg := h.Backend().NewIncomingMsg(real_channel, urn, payload[0].Message.Text).WithExternalID(payload[0].Message.MessageID)
 
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
