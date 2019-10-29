@@ -84,7 +84,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, fmt.Errorf("invalid auth token config")
 	}
 
-	authSecret := msg.Channel().OrgConfigForKey("BW_ACCOUNT_SECRET", "")
+	authSecret := msg.Channel().ConfigForKey(courier.ConfigSecret, "")
 	if authSecret == "" {
 		return nil, fmt.Errorf("invalid auth secret config")
 	}
