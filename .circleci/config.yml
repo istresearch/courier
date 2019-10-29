@@ -45,4 +45,8 @@ workflows:
   version: 2
   courier:
     jobs:
-      - run
+      - build:
+          context: globalconfig
+          filters:
+            tags:
+              ignore: /^test-.*/
