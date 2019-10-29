@@ -244,6 +244,17 @@ func (mb *MockBackend) GetChannel(ctx context.Context, cType ChannelType, uuid C
 	return channel, nil
 }
 
+// GetChannel returns the channel with the passed in type and channel uuid
+func (mb *MockBackend) GetChannelByAddress(ctx context.Context, ct ChannelType, addr string) (Channel, error) {
+	/*channel, found := mb.channels[uuid]
+	if !found {
+		return nil, ErrChannelNotFound
+	}*/
+	//return channel, nil
+
+	return nil, ErrChannelNotFound
+}
+
 // GetContact creates a new contact with the passed in channel and URN
 func (mb *MockBackend) GetContact(ctx context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error) {
 	contact, found := mb.contacts[urn]
