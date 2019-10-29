@@ -27,8 +27,8 @@ jobs:
 
             if [[ ! -z $CIRCLE_TAG ]] || [[ $BRANCH == "PULSE-7021" ]]; then
               docker login -u "${DOCKER_USER}" -p "${DOCKER_PASS}"
-              docker build --build-arg BUILD_NUMBER=$CIRCLE_BUILD_NUM -t $IMAGE_NAME-$VERSION_TAG -f Dockerfile .
-              docker push $IMAGE_NAME-$VERSION_TAG
+              docker build --build-arg BUILD_NUMBER=$CIRCLE_BUILD_NUM -t $IMAGE_NAME:$VERSION_TAG -f Dockerfile .
+              docker push $IMAGE_NAME:$VERSION_TAG
 
               if [[ $BRANCH == "develop" ]]; then
                 echo "No deploy yet"
