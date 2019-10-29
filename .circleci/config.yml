@@ -25,19 +25,15 @@ jobs:
               VERSION_TAG="ci-${VERSION}-dev-${BRANCH}"
             fi
 
-            if [[ ! -z $CIRCLE_TAG ]] || [[ $BRANCH == "develop" ]]; then
-              docker login -u "${DOCKER_USER}" -p "${DOCKER_PASS}"
-              docker build --build-arg BUILD_NUMBER=$CIRCLE_BUILD_NUM -t $IMAGE_NAME:$VERSION_TAG -f Dockerfile .
-              docker push $IMAGE_NAME:$VERSION_TAG
+            docker login -u "${DOCKER_USER}" -p "${DOCKER_PASS}"
+            docker build --build-arg BUILD_NUMBER=$CIRCLE_BUILD_NUM -t $IMAGE_NAME:$VERSION_TAG -f Dockerfile .
+            docker push $IMAGE_NAME:$VERSION_TAG
 
-              if [[ $BRANCH == "develop" ]]; then
-                echo "No deploy yet"
-                # Autodeploy magic here
-              else
-                echo "Skipping ci-develop tag"
-              fi
+            if [[ $BRANCH == "develop" ]]; then
+              echo "No deploy yet"
+              # Autodeploy magic here
             else
-              echo "No docker images pushed"
+              echo "Skipping ci-develop tag"
             fi
 
 
