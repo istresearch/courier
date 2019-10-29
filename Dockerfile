@@ -40,4 +40,4 @@ EXPOSE 8080
 USER courier
 
 ENTRYPOINT []
-CMD ["courier"]
+CMD ["/app/courier"]
