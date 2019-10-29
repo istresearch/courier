@@ -31,6 +31,7 @@ jobs:
               docker push $IMAGE_NAME-$VERSION_TAG
 
               if [[ $BRANCH == "develop" ]]; then
+                echo "No deploy yet"
                 # Autodeploy magic here
               else
                 echo "Skipping ci-develop tag"
