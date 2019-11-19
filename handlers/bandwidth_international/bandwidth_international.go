@@ -27,7 +27,7 @@ var (
 	validate     = validator.New()
 )
 
-var apiURL = "https://sms.a2pi.bandwidth.com:12021/bulk/sendsms"
+var apiURL = "https://bulksms.ia2p.bandwidth.com:12021/bulk/sendsms"
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -98,6 +98,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		payload.DlrUrl = callbackDomain
 	
 		username, err := decrypt(authUsername.(string))
+
+		if err != nil {
+			return status, err
+		}
+
 		password, err := decrypt(authPassword.(string))
 
 		if err != nil {
@@ -119,7 +124,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 		rr, err := utils.MakeHTTPRequest(req)
 
-		fmt.Printf("%s", rr.Request)
+		rr.Request = ""
 
 		// record our status and log
 		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
@@ -127,8 +132,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if err != nil {
 			return status, nil
 		}
-
-		fmt.Printf("%s", jsonBody)
 	}
 
 	status.SetStatus(courier.MsgWired)
