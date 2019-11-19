@@ -17,6 +17,7 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/gsm7"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/utils"
 
 	validator "gopkg.in/go-playground/validator.v9"
 )
@@ -116,14 +117,16 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		req.Header.Add("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Accept", "application/json")
 
-		/*rr, err := utils.MakeHTTPRequest(req)
+		rr, err := utils.MakeHTTPRequest(req)
+
+		fmt.Printf("%s", rr.Request)
 
 		// record our status and log
 		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 		status.AddLog(log)
 		if err != nil {
 			return status, nil
-		}*/
+		}
 
 		fmt.Printf("%s", jsonBody)
 	}
