@@ -91,7 +91,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		payload := outgoingMessage{}
 		payload.Type = "text"
 		payload.Sender = sender
-		payload.Receiver = msg.URN().Path()
+		payload.Receiver = strings.Trim(msg.URN().Path(),"+")
 		payload.Dsc = strings.ToUpper(encoding)
 		payload.Text = part
 		payload.DlrMask = 0
