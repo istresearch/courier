@@ -118,13 +118,9 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	// we had an error downloading media
 	if err != nil {
-		if strings.Contains(err.Error(), "status: 400") {
-			w.WriteHeader(200)
+		w.WriteHeader(200)
 
-			return nil, fmt.Errorf("Could not download attachments")
-		}
-
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.WrapPrefix(err, "error retrieving media", 0))
+		return nil, fmt.Errorf("Could not download attachments")
 	} 
 
 	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
