@@ -118,15 +118,20 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	// we had an error downloading media
 	if err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.WrapPrefix(err, "error retrieving media", 0))
-	}
+		if !strings.Contains(err.Error(), "status: 400") {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.WrapPrefix(err, "error retrieving media", 0))
+		}
+		
+		msg := h.Backend().NewIncomingMsg(channel, urn, "Could not download media").WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
+		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+	} 
 
-	// build our msg
 	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
 
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
 	}
+
 	// and finally write our message
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
