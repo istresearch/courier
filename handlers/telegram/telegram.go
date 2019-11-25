@@ -128,7 +128,6 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
 	}
-
 	// and finally write our message
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
