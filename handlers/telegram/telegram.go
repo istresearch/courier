@@ -148,7 +148,7 @@ func (h *handler) forwardMsg(channel courier.Channel, msg *moPayload) (bool, err
 	confForward := channel.ConfigForKey(forwardConfigKey, "")
 	forward_chat_id, isStr := confForward.(string)
 	if !isStr {
-		return false, fmt.Errorf("invalid auth token config")
+		return false, fmt.Errorf("Invalid forward chat id")
 	}
 
 	// If it is blank a forward is not configured. Just skip it. 
