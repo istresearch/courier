@@ -16,9 +16,13 @@ import (
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+
+	"github.com/sirupsen/logrus"
 )
 
 var apiURL = "https://api.telegram.org"
+
+var forwardConfigKey = "forward_id"
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -118,6 +122,8 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	// we had an error downloading media
 	if err != nil {
+		h.forwardMsg(channel, payload)
+
 		w.WriteHeader(200)
 
 		return nil, fmt.Errorf("Could not download attachments")
@@ -130,6 +136,48 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 	// and finally write our message
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+}
+
+func (h *handler) forwardMsg(channel courier.Channel, msg *moPayload) (bool, error) {
+	confAuth := channel.ConfigForKey(courier.ConfigAuthToken, "")
+	authToken, isStr := confAuth.(string)
+	if !isStr || authToken == "" {
+		return false, fmt.Errorf("invalid auth token config")
+	}
+
+	confForward := channel.ConfigForKey(forwardConfigKey, "")
+	forward_chat_id, isStr := confForward.(string)
+	if !isStr {
+		return false, fmt.Errorf("Invalid forward chat id")
+	}
+
+	// If it is blank a forward is not configured. Just skip it. 
+	if forward_chat_id == "" {
+		return true, nil
+	}
+
+	form := url.Values{
+		"chat_id": []string{forward_chat_id},
+		"from_chat_id": []string{strconv.FormatInt(msg.Message.Chat.ChatID, 10)},
+		"message_id": []string{strconv.FormatInt(msg.Message.MessageID, 10)},
+	}
+	
+	sendURL := fmt.Sprintf("%s/bot%s/%s", apiURL, authToken, "forwardMessage")
+	req, _ := http.NewRequest(http.MethodPost, sendURL, strings.NewReader(form.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	rr, err := utils.MakeHTTPRequest(req)
+
+	ok, err := jsonparser.GetBoolean([]byte(rr.Body), "ok")
+	if err != nil || !ok {
+		return false, errors.Errorf("forward response not 'ok'")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"forward_request": form.Encode(),
+	}).Info("forwarded message")
+
+	return true, nil
 }
 
 func (h *handler) sendMsgPart(msg courier.Msg, token string, path string, form url.Values, replies string) (string, *courier.ChannelLog, error) {
@@ -363,6 +411,10 @@ type moPayload struct {
 			LastName  string `json:"last_name"`
 			Username  string `json:"username"`
 		} `json:"from"`
+		Chat    struct {
+			ChatID  int64 `json:"id"`
+			Type  string `json:"type"`
+ 		} `json:"chat"`
 		Date    int64  `json:"date"`
 		Text    string `json:"text"`
 		Caption string `json:"caption"`
