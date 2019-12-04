@@ -30,6 +30,8 @@ jobs:
             docker push $IMAGE_NAME:$VERSION_TAG
 
             if [[ $BRANCH == "develop" ]]; then
+              docker tag $IMAGE_NAME:$VERSION_TAG $IMAGE_NAME:ci-develop
+              docker push $IMAGE_NAME:ci-develop
               echo "No deploy yet"
               # Autodeploy magic here
             else
