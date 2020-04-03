@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
@@ -20,6 +21,13 @@ var (
 	maxMsgLength = 2048
 	validate     = validator.New()
 )
+
+var statusMapping = map[string]courier.MsgStatusValue{
+	"S":      courier.MsgSent,
+	"E":      courier.MsgErrored,
+	"D":        courier.MsgDelivered,
+	"F": courier.MsgFailed,
+}
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -37,6 +45,7 @@ func newHandler() courier.ChannelHandler {
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
+	s.AddHandlerRoute(h, http.MethodPost, "status", h.receiveStatus)
 	return nil
 }
 
@@ -60,7 +69,22 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
 
-func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	payload := &messageStatus{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	cid, err := strconv.ParseInt(payload.MessageID, 10, 64)
+
+	status := h.Backend().NewMsgStatusForID(channel, courier.NewMsgID(cid), statusMapping[payload.Status])
+
+	return handlers.WriteMsgStatusAndResponse(ctx, h, channel, status, w, r)
+}
+
+
+	func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	apiUrl,err := getPostofficeEndpoint()
 
 	if err != nil {
@@ -83,6 +107,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		payload.Mode = chatMode
 		payload.ChannelID = msg.Channel().UUID().String()
 		payload.DeviceID = "123"
+		payload.ID = fmt.Sprintf("%d",msg.ID())
 
 		jsonBody, err := json.Marshal(payload)
 		if err != nil {
@@ -159,6 +184,7 @@ type incomingMessage struct {
 	"mode": "sms",
 	"channel_id": "7cc23772-e933-47b4-b025-19cbaec01edf",
 	"device_id": "7cc23773-e933-47b4-b025-19cbaec01edf",
+	"id": "32423432432",
 	"media": ["http://example.com/example.jpg"]
 }
 */
@@ -172,5 +198,18 @@ type outgoingMessage struct {
 	DeviceID  string `json:"device_id" validate:"required"`
 	ChannelID string `json:"channel_id" validate:"required"`
 
+	ID string `json:"id" validate:"required"`
+
 	Media []string ` json:"media"`
+}
+
+/*
+{
+	"message_id": "1234",
+	"status": "S"
+}
+ */
+type messageStatus struct {
+	MessageID string `json:"message_id" validate:"required"`
+	Status string `json:"status" validate:"required"`
 }
