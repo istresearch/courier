@@ -84,8 +84,14 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 }
 
 
-	func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	apiUrl,err := getPostofficeEndpoint()
+
+	if err != nil {
+		return nil, err
+	}
+
+	apiKey, err := getPostofficeAPIKey()
 
 	if err != nil {
 		return nil, err
@@ -114,10 +120,11 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 			return status, err
 		}
 
-		sendURL := fmt.Sprintf("%s/api/message/send", apiUrl)
+		sendURL := fmt.Sprintf("%s/postoffice/outgoing", apiUrl)
 		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
 		req.Header.Add("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", apiKey)
 
 		rr, err := utils.MakeHTTPRequest(req)
 
@@ -139,6 +146,16 @@ func getPostofficeEndpoint() (string, error) {
 
 	if !exists {
 		return "", fmt.Errorf("Please configure a postoffice endpoint")
+	}
+
+	return apiUrl, nil
+}
+
+func getPostofficeAPIKey() (string, error) {
+	apiUrl, exists := os.LookupEnv("COURIER_POSTOFFICE_APIKEY")
+
+	if !exists {
+		return "", fmt.Errorf("Please configure a postoffice api key")
 	}
 
 	return apiUrl, nil
