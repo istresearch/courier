@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	maxMsgLength = 2048
+	maxMsgLength = 20000
 	validate     = validator.New()
 )
 
@@ -64,7 +64,11 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Text)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Text).WithContactName(payload.Contact.Name)
+
+	for _, att := range payload.Media {
+		msg.WithAttachment(att)
+	}
 
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
@@ -102,18 +106,29 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, fmt.Errorf("invalid chat mode")
 	}
 
+	deviceId := msg.Channel().ConfigForKey("device_id", "").(string)
+	if deviceId == "" {
+		return nil, fmt.Errorf("invalid chat mode")
+	}
+
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
 	for _, part := range parts {
 		payload := outgoingMessage{}
-		payload.Contact.Name = msg.ContactName()
+		payload.Contact.Name = msg.ContactName() //as of writing, this is always blank. :shrug:
 		payload.Contact.Urn = msg.URN().Path()
 		payload.Text = part
 		payload.Mode = chatMode
 		payload.ChannelID = msg.Channel().UUID().String()
-		payload.DeviceID = "123"
+		payload.DeviceID = deviceId
 		payload.ID = fmt.Sprintf("%d",msg.ID())
+
+		for _, attachment := range msg.Attachments() {
+			_, mediaURL := handlers.SplitAttachment(attachment)
+
+			payload.Media = append(payload.Media, mediaURL)
+		}
 
 		jsonBody, err := json.Marshal(payload)
 		if err != nil {
@@ -152,13 +167,13 @@ func getPostofficeEndpoint() (string, error) {
 }
 
 func getPostofficeAPIKey() (string, error) {
-	apiUrl, exists := os.LookupEnv("COURIER_POSTOFFICE_APIKEY")
+	apiKey, exists := os.LookupEnv("COURIER_POSTOFFICE_APIKEY")
 
 	if !exists {
 		return "", fmt.Errorf("Please configure a postoffice api key")
 	}
 
-	return apiUrl, nil
+	return apiKey, nil
 }
 
 /*
