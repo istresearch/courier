@@ -3,11 +3,7 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -268,23 +264,8 @@ func BenchmarkHandler(b *testing.B) {
 
 // setSendURL takes care of setting the base_url to our test server host
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+	retryParam = "retry"
 	c.(*courier.MockChannel).SetConfig("base_url", s.URL)
-}
-
-func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {
-	casesWithMockedUrls := make([]ChannelSendTestCase, len(testCases))
-	for i, testCase := range testCases {
-		mockedCase := testCase
-		for j, attachment := range testCase.Attachments {
-			parts := strings.SplitN(attachment, ":", 2)
-			mimeType := parts[0]
-			urlString := parts[1]
-			parsedURL, _ := url.Parse(urlString)
-			mockedCase.Attachments[j] = fmt.Sprintf("%s:%s%s", mimeType, mediaServer.URL, parsedURL.Path)
-		}
-		casesWithMockedUrls[i] = mockedCase
-	}
-	return casesWithMockedUrls
 }
 
 var defaultSendTestCases = []ChannelSendTestCase{
@@ -326,16 +307,8 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Responses: map[MockedRequest]MockedResponse{
 			MockedRequest{
 				Method: "POST",
-				Path:   "/v1/media",
-				Body:   "media body",
-			}: MockedResponse{
-				Status: 201,
-				Body:   `{"media": [{"id": "media-id"}]}`,
-			},
-			MockedRequest{
-				Method: "POST",
 				Path:   "/v1/messages",
-				Body:   `{"to":"250788123123","type":"audio","audio":{"id":"media-id"}}`,
+				Body:   `{"to":"250788123123","type":"audio","audio":{"link":"https://foo.bar/audio.mp3"}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
@@ -351,16 +324,8 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Responses: map[MockedRequest]MockedResponse{
 			MockedRequest{
 				Method: "POST",
-				Path:   "/v1/media",
-				Body:   "media body",
-			}: MockedResponse{
-				Status: 201,
-				Body:   `{"media": [{"id": "media-id"}]}`,
-			},
-			MockedRequest{
-				Method: "POST",
 				Path:   "/v1/messages",
-				Body:   `{"to":"250788123123","type":"document","document":{"id":"media-id","caption":"document caption"}}`,
+				Body:   `{"to":"250788123123","type":"document","document":{"link":"https://foo.bar/document.pdf","caption":"document caption"}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
@@ -376,16 +341,8 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Responses: map[MockedRequest]MockedResponse{
 			MockedRequest{
 				Method: "POST",
-				Path:   "/v1/media",
-				Body:   "media body",
-			}: MockedResponse{
-				Status: 201,
-				Body:   `{"media": [{"id": "media-id"}]}`,
-			},
-			MockedRequest{
-				Method: "POST",
 				Path:   "/v1/messages",
-				Body:   `{"to":"250788123123","type":"image","image":{"id":"media-id","caption":"document caption"}}`,
+				Body:   `{"to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"document caption"}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
@@ -401,16 +358,8 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Responses: map[MockedRequest]MockedResponse{
 			MockedRequest{
 				Method: "POST",
-				Path:   "/v1/media",
-				Body:   "media body",
-			}: MockedResponse{
-				Status: 201,
-				Body:   `{"media": [{"id": "media-id"}]}`,
-			},
-			MockedRequest{
-				Method: "POST",
 				Path:   "/v1/messages",
-				Body:   `{"to":"250788123123","type":"video","video":{"id":"media-id","caption":"video caption"}}`,
+				Body:   `{"to":"250788123123","type":"video","video":{"link":"https://foo.bar/video.mp4","caption":"video caption"}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
@@ -424,13 +373,112 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["Chef", "tomorrow"]}}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
-		RequestBody: `{"to":"250788123123","type":"hsm","hsm":{"namespace":"waba_namespace","element_name":"revive_issue","language":{"policy":"deterministic","code":"en"},"localizable_params":[{"default":"Chef"},{"default":"tomorrow"}]}}`,
+		RequestBody: `{"to":"250788123123","type":"template","template":{"namespace":"waba_namespace","name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]}]}}`,
 		SendPrep:    setSendURL,
 	},
 	{Label: "Template Invalid Language",
 		Text: "templated message", URN: "whatsapp:250788123123",
 		Error:    `unable to decode template: {"templating": { "template": { "name": "revive_issue", "uuid": "8ca114b4-bee2-4d3b-aaf1-9aa6b48d41e8" }, "language": "bnt", "variables": ["Chef", "tomorrow"]}} for channel: 8eb23e93-5ecb-45ba-b726-3b064e0c56ab: unable to find mapping for language: bnt`,
 		Metadata: json.RawMessage(`{"templating": { "template": { "name": "revive_issue", "uuid": "8ca114b4-bee2-4d3b-aaf1-9aa6b48d41e8" }, "language": "bnt", "variables": ["Chef", "tomorrow"]}}`),
+	},
+	{Label: "WhatsApp Contact Error",
+		Text: "contact status error", URN: "whatsapp:250788123123",
+		Status: "E",
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"text","text":{"body":"contact status error"}}`,
+			}: MockedResponse{
+				Status: 404,
+				Body:   `{"errors": [{"code":1006,"title":"Resource not found","details":"unknown contact"}]}`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/contacts",
+				Body:   `{"blocking":"wait","contacts":["+250788123123"],"force_check":true}`,
+			}: MockedResponse{
+				Status: 200,
+				Body:   `{"contacts":[{"input":"+250788123123","status":"invalid"}]}`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Try Messaging Again After WhatsApp Contact Check",
+		Text: "try again", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"text","text":{"body":"try again"}}`,
+			}: MockedResponse{
+				Status: 404,
+				Body:   `{"errors": [{"code": 1006, "title": "Resource not found", "details": "unknown contact"}]}`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/contacts",
+				Body:   `{"blocking":"wait","contacts":["+250788123123"],"force_check":true}`,
+			}: MockedResponse{
+				Status: 200,
+				Body:   `{"contacts": [{"input": "+250788123123", "status": "valid", "wa_id": "250788123123"}]}`,
+			},
+			MockedRequest{
+				Method:   "POST",
+				Path:     "/v1/messages",
+				RawQuery: "retry=1",
+				Body:     `{"to":"250788123123","type":"text","text":{"body":"try again"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{"messages": [{"id": "157b5e14568e8"}]}`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Try Messaging Again After WhatsApp Contact Check With Returned WhatsApp ID",
+		Text: "try again", URN: "whatsapp:5582999887766",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"5582999887766","type":"text","text":{"body":"try again"}}`,
+			}: MockedResponse{
+				Status: 404,
+				Body:   `{"errors": [{"code": 1006, "title": "Resource not found", "details": "unknown contact"}]}`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/contacts",
+				Body:   `{"blocking":"wait","contacts":["+5582999887766"],"force_check":true}`,
+			}: MockedResponse{
+				Status: 200,
+				Body:   `{"contacts": [{"input": "+5582999887766", "status": "valid", "wa_id": "558299887766"}]}`,
+			},
+			MockedRequest{
+				Method:   "POST",
+				Path:     "/v1/messages",
+				RawQuery: "retry=1",
+				Body:     `{"to":"558299887766","type":"text","text":{"body":"try again"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{"messages": [{"id": "157b5e14568e8"}]}`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+}
+
+var hsmSupportSendTestCases = []ChannelSendTestCase{
+	{Label: "Template Send",
+		Text:   "templated message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["Chef", "tomorrow"]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"to":"250788123123","type":"hsm","hsm":{"namespace":"waba_namespace","element_name":"revive_issue","language":{"policy":"deterministic","code":"en"},"localizable_params":[{"default":"Chef"},{"default":"tomorrow"}]}}`,
+		SendPrep:    setSendURL,
 	},
 }
 
@@ -442,13 +490,14 @@ func TestSending(t *testing.T) {
 			"fb_namespace": "waba_namespace",
 		})
 
-	// fake media server that just replies with 200 and "media body" for content
-	mediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		defer req.Body.Close()
-		res.WriteHeader(200)
-		res.Write([]byte("media body"))
-	}))
+	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
+		map[string]interface{}{
+			"auth_token":   "token123",
+			"base_url":     "https://foo.bar/",
+			"fb_namespace": "waba_namespace",
+			"hsm_support":  true,
+		})
 
-	attachmentMockedSendTestCase := mockAttachmentURLs(mediaServer, defaultSendTestCases)
-	RunChannelSendTestCases(t, defaultChannel, newHandler(), attachmentMockedSendTestCase, nil)
+	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
+	RunChannelSendTestCases(t, hsmSupportChannel, newHandler(), hsmSupportSendTestCases, nil)
 }

@@ -45,7 +45,7 @@ func (m *mockS3Client) HeadBucket(*s3.HeadBucketInput) (*s3.HeadBucketOutput, er
 
 func testConfig() *courier.Config {
 	config := courier.NewConfig()
-	config.DB = "postgres://courier@localhost/courier_test?sslmode=disable"
+	config.DB = "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable"
 	config.Redis = "redis://localhost:6379/0"
 	return config
 }
@@ -64,6 +64,13 @@ func (ts *BackendTestSuite) SetupSuite() {
 	if err != nil {
 		log.Fatalf("unable to start backend for testing: %v", err)
 	}
+
+	// read our schema sql
+	sqlSchema, err := ioutil.ReadFile("schema.sql")
+	if err != nil {
+		panic(fmt.Errorf("Unable to read schema.sql: %s", err))
+	}
+	ts.b.db.MustExec(string(sqlSchema))
 
 	// read our testdata sql
 	sql, err := ioutil.ReadFile("testdata.sql")
@@ -122,7 +129,7 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 		"response_to_id": 15,
 		"response_to_external_id": "external-id",
 		"external_id": null,
-		"metadata": {"quick_replies": ["Yes", "No"]}
+		"metadata": {"quick_replies": ["Yes", "No"], "topic": "event"}
 	}`
 
 	msg := DBMsg{}
@@ -134,6 +141,7 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.Equal(msg.URNAuth_, "5ApPVsFDcFt:RZdK9ne7LgfvBYdtCYg7tv99hC9P2")
 	ts.Equal(msg.ExternalID(), "")
 	ts.Equal([]string{"Yes", "No"}, msg.QuickReplies())
+	ts.Equal("event", msg.Topic())
 	ts.Equal(courier.NewMsgID(15), msg.ResponseToID())
 	ts.Equal("external-id", msg.ResponseToExternalID())
 	ts.True(msg.HighPriority())
@@ -168,6 +176,7 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	err = json.Unmarshal([]byte(msgJSONNoQR), &msg)
 	ts.NoError(err)
 	ts.Equal([]string{}, msg.QuickReplies())
+	ts.Equal("", msg.Topic())
 	ts.Equal(courier.NilMsgID, msg.ResponseToID())
 	ts.Equal("", msg.ResponseToExternalID())
 }
@@ -183,8 +192,16 @@ func (ts *BackendTestSuite) TestCheckMsgExists() {
 	err = checkMsgExists(ts.b, ts.b.NewMsgStatusForID(knChannel, courier.NewMsgID(10000), courier.MsgStatusValue("S")))
 	ts.Nil(err)
 
+	// only outgoing messages are matched
+	err = checkMsgExists(ts.b, ts.b.NewMsgStatusForID(knChannel, courier.NewMsgID(10002), courier.MsgStatusValue("S")))
+	ts.Equal(err, courier.ErrMsgNotFound)
+
 	// check with invalid external id
 	err = checkMsgExists(ts.b, ts.b.NewMsgStatusForExternalID(knChannel, "ext-invalid", courier.MsgStatusValue("S")))
+	ts.Equal(err, courier.ErrMsgNotFound)
+
+	// only outgoing messages are matched
+	err = checkMsgExists(ts.b, ts.b.NewMsgStatusForExternalID(knChannel, "ext2", courier.MsgStatusValue("S")))
 	ts.Equal(err, courier.ErrMsgNotFound)
 
 	// check with valid external id
@@ -476,6 +493,21 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(err)
 	time.Sleep(time.Second)
 
+	// no change for incoming messages
+	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10002))
+	ts.NoError(err)
+	ts.Equal(m.Status_, courier.MsgPending)
+	ts.Equal(m.ExternalID_, null.String("ext2"))
+
+	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10002), courier.MsgSent)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
+	time.Sleep(time.Second)
+	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10002))
+	ts.NoError(err)
+	ts.Equal(m.Status_, courier.MsgPending)
+	ts.Equal(m.ExternalID_, null.String("ext2"))
+
 	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10001))
 	ts.NoError(err)
 	ts.Equal(m.Status_, courier.MsgSent)
@@ -492,8 +524,13 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.Equal(m.Status_, courier.MsgFailed)
 	ts.True(m.ModifiedOn_.After(now))
 
-	// no such external id
+	// no such external id for outgoing message
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext2", courier.MsgSent)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.Error(err)
+
+	// no such external id
+	status = ts.b.NewMsgStatusForExternalID(channel, "ext3", courier.MsgSent)
 	err = ts.b.WriteMsgStatus(ctx, status)
 	ts.Error(err)
 
@@ -538,6 +575,70 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(err)
 	ts.Equal(m.Status_, courier.MsgFailed)
 	ts.Equal(m.ErrorCount_, 3)
+
+	// update URN when the new doesn't exist
+	tx, _ := ts.b.db.BeginTxx(ctx, nil)
+	oldURN, _ := urns.NewWhatsAppURN("55988776655")
+	_ = insertContactURN(tx, newDBContactURN(channel.OrgID_, channel.ID_, NilContactID, oldURN, ""))
+
+	ts.NoError(tx.Commit())
+
+	newURN, _ := urns.NewWhatsAppURN("5588776655")
+	status = ts.b.NewMsgStatusForID(channel, courier.MsgID(10000), courier.MsgSent)
+	status.SetUpdatedURN(oldURN, newURN)
+
+	ts.NoError(ts.b.WriteMsgStatus(ctx, status))
+
+	tx, _ = ts.b.db.BeginTxx(ctx, nil)
+	contactURN, err := selectContactURN(tx, channel.OrgID_, newURN)
+
+	ts.NoError(err)
+	ts.Equal(contactURN.Identity, newURN.Identity().String())
+	ts.NoError(tx.Commit())
+
+	// new URN already exits but don't have an associated contact
+	oldURN, _ = urns.NewWhatsAppURN("55999887766")
+	newURN, _ = urns.NewWhatsAppURN("5599887766")
+	tx, _ = ts.b.db.BeginTxx(ctx, nil)
+	contact, _ := contactForURN(ctx, ts.b, channel.OrgID_, channel, oldURN, "", "")
+	_ = insertContactURN(tx, newDBContactURN(channel.OrgID_, channel.ID_, NilContactID, newURN, ""))
+
+	ts.NoError(tx.Commit())
+
+	status = ts.b.NewMsgStatusForID(channel, courier.MsgID(10007), courier.MsgSent)
+	status.SetUpdatedURN(oldURN, newURN)
+
+	ts.NoError(ts.b.WriteMsgStatus(ctx, status))
+
+	tx, _ = ts.b.db.BeginTxx(ctx, nil)
+	newContactURN, _ := selectContactURN(tx, channel.OrgID_, newURN)
+	oldContactURN, _ := selectContactURN(tx, channel.OrgID_, oldURN)
+
+	ts.Equal(newContactURN.ContactID, contact.ID_)
+	ts.Equal(oldContactURN.ContactID, NilContactID)
+	ts.NoError(tx.Commit())
+
+	// new URN already exits and have an associated contact
+	oldURN, _ = urns.NewWhatsAppURN("55988776655")
+	newURN, _ = urns.NewWhatsAppURN("5588776655")
+	tx, _ = ts.b.db.BeginTxx(ctx, nil)
+	_, _ = contactForURN(ctx, ts.b, channel.OrgID_, channel, oldURN, "", "")
+	otherContact, _ := contactForURN(ctx, ts.b, channel.OrgID_, channel, newURN, "", "")
+
+	ts.NoError(tx.Commit())
+
+	status = ts.b.NewMsgStatusForID(channel, courier.MsgID(10007), courier.MsgSent)
+	status.SetUpdatedURN(oldURN, newURN)
+
+	ts.NoError(ts.b.WriteMsgStatus(ctx, status))
+
+	tx, _ = ts.b.db.BeginTxx(ctx, nil)
+	oldContactURN, _ = selectContactURN(tx, channel.OrgID_, oldURN)
+	newContactURN, _ = selectContactURN(tx, channel.OrgID_, newURN)
+
+	ts.Equal(oldContactURN.ContactID, NilContactID)
+	ts.Equal(newContactURN.ContactID, otherContact.ID_)
+	ts.NoError(tx.Commit())
 }
 
 func (ts *BackendTestSuite) TestHealth() {
@@ -1049,7 +1150,7 @@ var invalidConfigTestCases = []struct {
 }{
 	{config: courier.Config{DB: ":foo"}, expectedError: "unable to parse DB URL"},
 	{config: courier.Config{DB: "mysql:test"}, expectedError: "only postgres is supported"},
-	{config: courier.Config{DB: "postgres://courier@localhost/courier", Redis: ":foo"}, expectedError: "unable to parse Redis URL"},
+	{config: courier.Config{DB: "postgres://courier:courier@localhost:5432/courier", Redis: ":foo"}, expectedError: "unable to parse Redis URL"},
 }
 
 func (ts *ServerTestSuite) TestInvalidConfigs() {

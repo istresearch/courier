@@ -1,3 +1,116 @@
+v5.5.13
+----------
+ * Use Channel specific max_length config value if set
+
+v5.5.12
+----------
+ * Increase ArabiaCell max length to 1530
+
+v5.5.11
+----------
+ * Retry WhatsApp channel messaging after contact check with returned WhatsApp ID
+
+v5.5.10
+----------
+ * Fix sending WA template messages on new WhatsApp docker
+
+v5.5.9
+----------
+ * Add option for Kannel channels to ignore duplicative sent status
+
+v5.5.8
+----------
+ * More tweaks to slowing down batching of status commits when approaching max queue size
+
+v5.5.7
+----------
+ * slow queuing before reaching our max batch size
+
+v5.5.6
+----------
+ * Slow queuing into a batch when batches are full
+
+v5.5.5
+----------
+ * Increase buffer size
+ * Add support for Viber stickers as image attachments for incoming messages
+
+v5.5.4
+----------
+ * handle error cases for whatsapp callbacks
+
+v5.5.3
+----------
+ * add native panic handling
+
+v5.5.2
+----------
+ * Send msg in batches and add image msg type in the LINE channel
+
+v5.5.1
+----------
+ * Add contacts not already present for WhatsApp when sending error detected (thanks @koallann)
+
+v5.5.0
+----------
+ * add fabric to gitignore
+
+v5.6.0
+----------
+ * add fabric to gitignore
+
+v5.4.1
+----------
+ * Strip cookie from incoming requests
+
+v5.4.0
+----------
+ * touch README for 5.4 release
+
+v5.3.9
+----------
+ * Add VK Channel
+
+v5.3.8
+----------
+ * Fix Chatbase request body
+
+v5.3.7
+----------
+ * Fix quick replies variable replacement on external channel long msg
+
+v5.3.6
+----------
+ * Allow configuring and sending of quick replies for external channels
+
+v5.3.5
+----------
+ * Refactor FMC channel to support the fixed quick replies structure
+
+v5.3.4
+----------
+ * Change Arabia Cell max length to 670, fixes #274
+ * Add support for Twilio Whatsapp channel type
+ * Convert to use Github actions for CI
+
+v5.3.3
+----------
+ * Fix freshchat image handing
+
+v5.3.2
+----------
+ * Set Facebook message type tag when topic is set on message
+
+v5.3.1
+----------
+ * update changelog for v5.3
+
+v5.3.0
+----------
+ * Send WhatsApp media via URL
+ * Log Zenvia errors to ChannelLog instead of Sentry
+ * Ignore status updates for incoming messages	
+
 v5.2.0
 ----------
  * Sync version with RapidPro 5.2
