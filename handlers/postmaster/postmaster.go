@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
@@ -15,6 +17,13 @@ import (
 	"github.com/nyaruka/gocommon/urns"
 
 	validator "gopkg.in/go-playground/validator.v9"
+)
+
+const (
+	PM_WHATSAPP_SCHEME ="pm_whatsapp"
+	PM_TELEGRAM_SCHEME = "pm_telegram"
+	PM_SIGNAL_SCHEME = "pm_signal"
+	PM_LINE_SCHEME = "pm_line"
 )
 
 var (
@@ -50,7 +59,7 @@ func (h *handler) Initialize(s courier.Server) error {
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
-func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {	
+func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &incomingMessage{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
@@ -58,13 +67,48 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 
 	var urn urns.URN
-	urn, err = urns.NewURNFromParts(urns.TelScheme, payload.Contact.Urn, "", "")
+	mode := strings.ToUpper(payload.Mode)
+
+	scheme := ""
+
+	switch mode {
+	case "SMS":
+		scheme = urns.TelScheme
+
+		// Remove out + and - just in case
+		value := payload.Contact.Urn
+		value = strings.Replace(value, " ","",-1)
+		value = strings.Replace(value, "-","",-1)
+
+		// Only add + if it is a full phone, not a shortcode
+		if len(value) > 8 {
+			isNumeric := regexp.MustCompile(`^[0-9 ]+$`).MatchString
+
+			if isNumeric(payload.Contact.Urn) {
+				value = "+" + value
+			}
+		}
+
+		payload.Contact.Urn = value
+	case "WA":
+		scheme = PM_WHATSAPP_SCHEME
+	case "TG":
+		scheme = PM_TELEGRAM_SCHEME
+	case "LN":
+		scheme = PM_LINE_SCHEME
+	default:
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid chat mode %s", mode))
+	}
+
+	urn, err = urns.NewURNFromParts(scheme, payload.Contact.Urn, "", "")
 
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Text).WithContactName(payload.Contact.Name)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Text).
+		WithContactName(payload.Contact.Name).
+		WithReceivedOn(payload.Time.Time)
 
 	for _, att := range payload.Media {
 		msg.WithAttachment(att)
@@ -139,7 +183,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
 		req.Header.Add("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", apiKey)
+		req.Header.Set("x-api-key", apiKey)
 
 		rr, err := utils.MakeHTTPRequest(req)
 
@@ -194,7 +238,7 @@ Content-Type: application/json; charset=utf-8
 */
 
 type incomingMessage struct {
-	Time      int    `json:"time" validate:"required"`
+	Time      ISO8601WithMilli    `json:"time" validate:"required"`
 	Text      string `json:"text" validate:"required"`
 	Contact struct {
 		Name string `json:"name"`
