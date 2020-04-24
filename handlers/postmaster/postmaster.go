@@ -163,7 +163,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		payload.Contact.Name = msg.ContactName() //as of writing, this is always blank. :shrug:
 		payload.Contact.Urn = msg.URN().Path()
 		payload.Text = part
-		payload.Mode = chatMode
+		payload.Mode = strings.ToUpper(chatMode)
 		payload.ChannelID = msg.Channel().UUID().String()
 		payload.DeviceID = deviceId
 		payload.ID = fmt.Sprintf("%d",msg.ID())

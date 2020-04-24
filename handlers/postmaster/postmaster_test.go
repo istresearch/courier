@@ -23,7 +23,7 @@ var (
 
 var acceptedMessage = `
 {
-	"time": 1583343305,
+	"time": "2006-01-02T15:04:05.000Z",
 	"text": "bla",
 	"contact": {
 		"name": "Bob",
