@@ -76,7 +76,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		scheme = urns.TelScheme
 
 		// Remove out + and - just in case
-		value := payload.Contact.Urn
+		value := payload.Contact.Value
 		value = strings.Replace(value, " ","",-1)
 		value = strings.Replace(value, "-","",-1)
 
@@ -84,12 +84,12 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		if len(value) > 8 {
 			isNumeric := regexp.MustCompile(`^[0-9 ]+$`).MatchString
 
-			if isNumeric(payload.Contact.Urn) {
+			if isNumeric(value) {
 				value = "+" + value
 			}
 		}
 
-		payload.Contact.Urn = value
+		payload.Contact.Value = value
 	case "WA":
 		scheme = PM_WHATSAPP_SCHEME
 	case "TG":
@@ -100,7 +100,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid chat mode %s", mode))
 	}
 
-	urn, err = urns.NewURNFromParts(scheme, payload.Contact.Urn, "", "")
+	urn, err = urns.NewURNFromParts(scheme, payload.Contact.Value, "", "")
 
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -161,7 +161,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	for _, part := range parts {
 		payload := outgoingMessage{}
 		payload.Contact.Name = msg.ContactName() //as of writing, this is always blank. :shrug:
-		payload.Contact.Urn = msg.URN().Path()
+		payload.Contact.Value = msg.URN().Path()
 		payload.Text = part
 		payload.Mode = strings.ToUpper(chatMode)
 		payload.ChannelID = msg.Channel().UUID().String()
@@ -229,7 +229,7 @@ Content-Type: application/json; charset=utf-8
 	"text": "bla",
 	"contact": {
 		"name": "Bob",
-		"urn": "tel:+11234567890"
+		"value": "tel:+11234567890"
 	},
 	"mode": "sms",
 	"channel_id": "7cc23772-e933-47b4-b025-19cbaec01edf",
@@ -242,7 +242,7 @@ type incomingMessage struct {
 	Text      string `json:"text" validate:"required"`
 	Contact struct {
 		Name string `json:"name"`
-		Urn  string `json:"urn" validate:"required"`
+		Value  string `json:"value" validate:"required"`
 	} `json:"contact" validate:"required"`
 	Mode      string `json:"mode" validate:"required"`
 	ChannelID string `json:"channel_id" validate:"required"`
@@ -255,7 +255,7 @@ type incomingMessage struct {
 	"text": "bla",
 	"contact": {
 		"name": "Bob",
-		"urn": "tel:+11234567890"
+		"value": "tel:+11234567890"
 	},
 	"mode": "sms",
 	"channel_id": "7cc23772-e933-47b4-b025-19cbaec01edf",
@@ -268,7 +268,7 @@ type outgoingMessage struct {
 	Text      string `json:"text" validate:"required"`
 	Contact struct {
 		Name string `json:"name"`
-		Urn  string `json:"urn" validate:"required"`
+		Value  string `json:"value" validate:"required"`
 	} `json:"contact" validate:"required"`
 	Mode      string `json:"mode" validate:"required"`
 	DeviceID  string `json:"device_id" validate:"required"`
