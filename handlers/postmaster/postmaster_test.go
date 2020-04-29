@@ -23,11 +23,11 @@ var (
 
 var acceptedMessage = `
 {
-	"time": 1583343305,
+	"time": "2006-01-02T15:04:05.000Z",
 	"text": "bla",
 	"contact": {
 		"name": "Bob",
-		"urn": "+11234567890"
+		"value": "+11234567890"
 	},
 	"mode": "sms",
 	"channel_id": "08ecc21a-8098-4ddb-a090-eca7ee97f65d",
@@ -68,7 +68,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Simple Message ☺", URN: "tel:+11234567890", Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
 		Status: "W",
 		ResponseBody: `{"ack":"ok","error":"","code":200}`, ResponseStatus: 200,
-		RequestBody: `{"text":"Simple Message ☺","contact":{"name":"","urn":"+11234567890"},"mode":"SMS","device_id":"123","channel_id":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","id":"10","media":["https://foo.bar/image.jpg"]}`,
+		RequestBody: `{"text":"Simple Message ☺","contact":{"name":"","value":"+11234567890"},"mode":"SMS","device_id":"123","channel_id":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","id":"10","media":["https://foo.bar/image.jpg"]}`,
 
 		SendPrep: setSendURL},
 }
