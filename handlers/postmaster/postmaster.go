@@ -52,6 +52,10 @@ func newHandler() courier.ChannelHandler {
 
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
+	urns.ValidSchemes[PM_WHATSAPP_SCHEME] = true
+	urns.ValidSchemes[PM_TELEGRAM_SCHEME] = true
+	urns.ValidSchemes[PM_LINE_SCHEME] = true
+
 	h.SetServer(s)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
 	s.AddHandlerRoute(h, http.MethodPost, "status", h.receiveStatus)
@@ -118,7 +122,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 }
 
 func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	payload := &messageStatus{}
+	payload := new(messageStatus)
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -159,7 +163,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
 	for _, part := range parts {
-		payload := outgoingMessage{}
+		payload := new(outgoingMessage)
 		payload.Contact.Name = msg.ContactName() //as of writing, this is always blank. :shrug:
 		payload.Contact.Value = msg.URN().Path()
 		payload.Text = part
