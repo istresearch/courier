@@ -17,7 +17,7 @@ func (t *ISO8601WithMilli) UnmarshalJSON(b []byte) error {
 
 	s := strings.Trim(string(b), "\"")
 
-	if s == "null" || len(s) == 0 {
+	if s == "0" || len(s) == 0 {
 		t.Time = time.Time{}
 		return nil
 	}
@@ -29,7 +29,7 @@ func (t *ISO8601WithMilli) UnmarshalJSON(b []byte) error {
 
 func (t *ISO8601WithMilli) MarshalJSON() ([]byte, error) {
 	if t.Time.UnixNano() == (time.Time{}).UnixNano() {
-		return []byte("null"), nil
+		return []byte("0"), nil
 	}
 
 	return []byte(fmt.Sprintf("\"%s\"", t.Time.Format(milliLayout))), nil
