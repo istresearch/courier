@@ -19,13 +19,6 @@ import (
 	validator "gopkg.in/go-playground/validator.v9"
 )
 
-const (
-	PM_WHATSAPP_SCHEME ="pm_whatsapp"
-	PM_TELEGRAM_SCHEME = "pm_telegram"
-	PM_SIGNAL_SCHEME = "pm_signal"
-	PM_LINE_SCHEME = "pm_line"
-)
-
 var (
 	maxMsgLength = 20000
 	validate     = validator.New()
@@ -52,10 +45,6 @@ func newHandler() courier.ChannelHandler {
 
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
-	urns.ValidSchemes[PM_WHATSAPP_SCHEME] = true
-	urns.ValidSchemes[PM_TELEGRAM_SCHEME] = true
-	urns.ValidSchemes[PM_LINE_SCHEME] = true
-
 	h.SetServer(s)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
 	s.AddHandlerRoute(h, http.MethodPost, "status", h.receiveStatus)
@@ -73,12 +62,17 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	var urn urns.URN
 	mode := strings.ToUpper(payload.Mode)
 
-	scheme := ""
+	if len(channel.Schemes()) < 1 {
+		return nil, fmt.Errorf("no scheme set for channel %s", channel.UUID())
+	}
 
-	switch mode {
-	case "SMS":
-		scheme = urns.TelScheme
+	scheme := channel.Schemes()[0]
 
+	//Force scheme to be valid
+	urns.ValidSchemes[scheme] = true
+
+	//Handle SMS (tel) specially, everything else is a straight string passthrough
+	if mode == "SMS" {
 		// Remove out + and - just in case
 		value := payload.Contact.Value
 		value = strings.Replace(value, " ","",-1)
@@ -94,14 +88,6 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		}
 
 		payload.Contact.Value = value
-	case "WA":
-		scheme = PM_WHATSAPP_SCHEME
-	case "TG":
-		scheme = PM_TELEGRAM_SCHEME
-	case "LN":
-		scheme = PM_LINE_SCHEME
-	default:
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid chat mode %s", mode))
 	}
 
 	urn, err = urns.NewURNFromParts(scheme, payload.Contact.Value, "", "")
