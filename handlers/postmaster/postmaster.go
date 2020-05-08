@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
@@ -50,7 +52,7 @@ func (h *handler) Initialize(s courier.Server) error {
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
-func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {	
+func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &incomingMessage{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
@@ -58,13 +60,45 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 
 	var urn urns.URN
-	urn, err = urns.NewURNFromParts(urns.TelScheme, payload.Contact.Urn, "", "")
+	mode := strings.ToUpper(payload.Mode)
+
+	if len(channel.Schemes()) < 1 {
+		return nil, fmt.Errorf("no scheme set for channel %s", channel.UUID())
+	}
+
+	scheme := channel.Schemes()[0]
+
+	//Force scheme to be valid
+	urns.ValidSchemes[scheme] = true
+
+	//Handle SMS (tel) specially, everything else is a straight string passthrough
+	if mode == "SMS" {
+		// Remove out + and - just in case
+		value := payload.Contact.Value
+		value = strings.Replace(value, " ","",-1)
+		value = strings.Replace(value, "-","",-1)
+
+		// Only add + if it is a full phone, not a shortcode
+		if len(value) > 8 {
+			isNumeric := regexp.MustCompile(`^[0-9 ]+$`).MatchString
+
+			if isNumeric(value) {
+				value = "+" + value
+			}
+		}
+
+		payload.Contact.Value = value
+	}
+
+	urn, err = urns.NewURNFromParts(scheme, payload.Contact.Value, "", "")
 
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Text).WithContactName(payload.Contact.Name)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Text).
+		WithContactName(payload.Contact.Name).
+		WithReceivedOn(payload.Time.Time)
 
 	for _, att := range payload.Media {
 		msg.WithAttachment(att)
@@ -74,7 +108,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 }
 
 func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	payload := &messageStatus{}
+	payload := new(messageStatus)
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -115,11 +149,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
 	for _, part := range parts {
-		payload := outgoingMessage{}
+		payload := new(outgoingMessage)
 		payload.Contact.Name = msg.ContactName() //as of writing, this is always blank. :shrug:
-		payload.Contact.Urn = msg.URN().Path()
+		payload.Contact.Value = msg.URN().Path()
 		payload.Text = part
-		payload.Mode = chatMode
+		payload.Mode = strings.ToUpper(chatMode)
 		payload.ChannelID = msg.Channel().UUID().String()
 		payload.DeviceID = deviceId
 		payload.ID = fmt.Sprintf("%d",msg.ID())
@@ -139,7 +173,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
 		req.Header.Add("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Authorization", apiKey)
+		req.Header.Set("x-api-key", apiKey)
 
 		rr, err := utils.MakeHTTPRequest(req)
 
@@ -185,7 +219,7 @@ Content-Type: application/json; charset=utf-8
 	"text": "bla",
 	"contact": {
 		"name": "Bob",
-		"urn": "tel:+11234567890"
+		"value": "tel:+11234567890"
 	},
 	"mode": "sms",
 	"channel_id": "7cc23772-e933-47b4-b025-19cbaec01edf",
@@ -194,11 +228,11 @@ Content-Type: application/json; charset=utf-8
 */
 
 type incomingMessage struct {
-	Time      int    `json:"time" validate:"required"`
+	Time      ISO8601WithMilli    `json:"time" validate:"required"`
 	Text      string `json:"text" validate:"required"`
 	Contact struct {
 		Name string `json:"name"`
-		Urn  string `json:"urn" validate:"required"`
+		Value  string `json:"value" validate:"required"`
 	} `json:"contact" validate:"required"`
 	Mode      string `json:"mode" validate:"required"`
 	ChannelID string `json:"channel_id" validate:"required"`
@@ -211,7 +245,7 @@ type incomingMessage struct {
 	"text": "bla",
 	"contact": {
 		"name": "Bob",
-		"urn": "tel:+11234567890"
+		"value": "tel:+11234567890"
 	},
 	"mode": "sms",
 	"channel_id": "7cc23772-e933-47b4-b025-19cbaec01edf",
@@ -224,7 +258,7 @@ type outgoingMessage struct {
 	Text      string `json:"text" validate:"required"`
 	Contact struct {
 		Name string `json:"name"`
-		Urn  string `json:"urn" validate:"required"`
+		Value  string `json:"value" validate:"required"`
 	} `json:"contact" validate:"required"`
 	Mode      string `json:"mode" validate:"required"`
 	DeviceID  string `json:"device_id" validate:"required"`
