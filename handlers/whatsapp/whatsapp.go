@@ -20,7 +20,12 @@ import (
 )
 
 const (
-	configNamespace = "fb_namespace"
+	configNamespace  = "fb_namespace"
+	configHSMSupport = "hsm_support"
+)
+
+var (
+	retryParam = ""
 )
 
 func init() {
@@ -142,9 +147,9 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	data := make([]interface{}, 0, 2)
 
 	var contactNames = make(map[string]string)
-    for _, contact := range payload.Contacts {
-        contactNames[contact.WaID] = contact.Profile.Name
-    }
+	for _, contact := range payload.Contacts {
+		contactNames[contact.WaID] = contact.Profile.Name
+	}
 
 	// first deal with any received messages
 	for _, msg := range payload.Messages {
@@ -166,19 +171,19 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 		if msg.Type == "text" {
 			text = msg.Text.Body
-		} else if msg.Type == "audio" {
+		} else if msg.Type == "audio" && msg.Audio != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Audio.ID)
-		} else if msg.Type == "document" {
+		} else if msg.Type == "document" && msg.Document != nil {
 			text = msg.Document.Caption
 			mediaURL, err = resolveMediaURL(channel, msg.Document.ID)
-		} else if msg.Type == "image" {
+		} else if msg.Type == "image" && msg.Image != nil {
 			text = msg.Image.Caption
 			mediaURL, err = resolveMediaURL(channel, msg.Image.ID)
-		} else if msg.Type == "location" {
+		} else if msg.Type == "location" && msg.Location != nil {
 			mediaURL = fmt.Sprintf("geo:%f,%f", msg.Location.Latitude, msg.Location.Longitude)
-		} else if msg.Type == "video" {
+		} else if msg.Type == "video" && msg.Video != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Video.ID)
-		} else if msg.Type == "voice" {
+		} else if msg.Type == "voice" && msg.Voice != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Voice.ID)
 		} else {
 			// we received a message type we do not support.
@@ -314,11 +319,36 @@ type mtTextPayload struct {
 }
 
 type mediaObject struct {
-	ID string `json:"id" validate:"required"`
+	Link    string `json:"link" validate:"required"`
+	Caption string `json:"caption,omitempty"`
 }
 
 type LocalizableParam struct {
 	Default string `json:"default"`
+}
+
+type Param struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type Component struct {
+	Type       string  `json:"type"`
+	Parameters []Param `json:"parameters"`
+}
+
+type templatePayload struct {
+	To       string `json:"to"`
+	Type     string `json:"type"`
+	Template struct {
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+		Language  struct {
+			Policy string `json:"policy"`
+			Code   string `json:"code"`
+		} `json:"language"`
+		Components []Component `json:"components"`
+	} `json:"template"`
 }
 
 type hsmPayload struct {
@@ -335,11 +365,6 @@ type hsmPayload struct {
 	} `json:"hsm"`
 }
 
-type captionedMediaObject struct {
-	ID      string `json:"id" validate:"required"`
-	Caption string `json:"caption,omitempty"`
-}
-
 type mtAudioPayload struct {
 	To    string       `json:"to"    validate:"required"`
 	Type  string       `json:"type"  validate:"required"`
@@ -347,21 +372,29 @@ type mtAudioPayload struct {
 }
 
 type mtDocumentPayload struct {
-	To       string                `json:"to"    validate:"required"`
-	Type     string                `json:"type"  validate:"required"`
-	Document *captionedMediaObject `json:"document"`
+	To       string       `json:"to"    validate:"required"`
+	Type     string       `json:"type"  validate:"required"`
+	Document *mediaObject `json:"document"`
 }
 
 type mtImagePayload struct {
-	To    string                `json:"to"    validate:"required"`
-	Type  string                `json:"type"  validate:"required"`
-	Image *captionedMediaObject `json:"image"`
+	To    string       `json:"to"    validate:"required"`
+	Type  string       `json:"type"  validate:"required"`
+	Image *mediaObject `json:"image"`
 }
 
 type mtVideoPayload struct {
-	To    string                `json:"to" validate: "required"`
-	Type  string                `json:"type" validate: "required"`
-	Video *captionedMediaObject `json:"video"`
+	To    string       `json:"to" validate: "required"`
+	Type  string       `json:"type" validate: "required"`
+	Video *mediaObject `json:"video"`
+}
+
+type mtErrorPayload struct {
+	Errors []struct {
+		Code    int    `json:"code"`
+		Title   string `json:"title"`
+		Details string `json:"details"`
+	} `json:"errors"`
 }
 
 // whatsapp only allows messages up to 4096 chars
@@ -382,26 +415,16 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, fmt.Errorf("invalid base url set for WA channel: %s", err)
 	}
 	sendPath, _ := url.Parse("/v1/messages")
-	sendURL := url.ResolveReference(sendPath).String()
-
-	mediaPath, _ := url.Parse("/v1/media")
-	mediaURL := url.ResolveReference(mediaPath).String()
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
-	var log *courier.ChannelLog
+
+	var wppID string
+	var logs []*courier.ChannelLog
 
 	if len(msg.Attachments()) > 0 {
 		for attachmentCount, attachment := range msg.Attachments() {
 
 			mimeType, s3url := handlers.SplitAttachment(attachment)
-			mediaID := ""
-			mediaID, log, err = uploadMediaToWhatsApp(msg, mediaURL, token, mimeType, s3url)
-			status.AddLog(log)
-
-			if err != nil {
-				log.WithError("Unable to upload media to WhatsApp server", err)
-				break
-			}
 
 			externalID := ""
 			if strings.HasPrefix(mimeType, "audio") {
@@ -409,8 +432,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 					To:   msg.URN().Path(),
 					Type: "audio",
 				}
-				payload.Audio = &mediaObject{ID: mediaID}
-				externalID, log, err = sendWhatsAppMsg(msg, sendURL, token, payload)
+				payload.Audio = &mediaObject{Link: s3url}
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
 
 			} else if strings.HasPrefix(mimeType, "application") {
 				payload := mtDocumentPayload{
@@ -419,11 +442,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				}
 
 				if attachmentCount == 0 {
-					payload.Document = &captionedMediaObject{ID: mediaID, Caption: msg.Text()}
+					payload.Document = &mediaObject{Link: s3url, Caption: msg.Text()}
 				} else {
-					payload.Document = &captionedMediaObject{ID: mediaID}
+					payload.Document = &mediaObject{Link: s3url}
 				}
-				externalID, log, err = sendWhatsAppMsg(msg, sendURL, token, payload)
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
 
 			} else if strings.HasPrefix(mimeType, "image") {
 				payload := mtImagePayload{
@@ -431,30 +454,30 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 					Type: "image",
 				}
 				if attachmentCount == 0 {
-					payload.Image = &captionedMediaObject{ID: mediaID, Caption: msg.Text()}
+					payload.Image = &mediaObject{Link: s3url, Caption: msg.Text()}
 				} else {
-					payload.Image = &captionedMediaObject{ID: mediaID}
+					payload.Image = &mediaObject{Link: s3url}
 				}
-				externalID, log, err = sendWhatsAppMsg(msg, sendURL, token, payload)
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
 			} else if strings.HasPrefix(mimeType, "video") {
 				payload := mtVideoPayload{
 					To:   msg.URN().Path(),
 					Type: "video",
 				}
 				if attachmentCount == 0 {
-					payload.Video = &captionedMediaObject{ID: mediaID, Caption: msg.Text()}
+					payload.Video = &mediaObject{Link: s3url, Caption: msg.Text()}
 				} else {
-					payload.Video = &captionedMediaObject{ID: mediaID}
+					payload.Video = &mediaObject{Link: s3url}
 				}
-				externalID, log, err = sendWhatsAppMsg(msg, sendURL, token, payload)
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
 			} else {
 				duration := time.Since(start)
 				err = fmt.Errorf("unknown attachment mime type: %s", mimeType)
-				log = courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)
+				logs = []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
 			}
 
-			// if we have a log, add it to our status
-			if log != nil {
+			// add logs to our status
+			for _, log := range logs {
 				status.AddLog(log)
 			}
 
@@ -483,29 +506,51 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				return nil, errors.Errorf("cannot send template message without Facebook namespace for channel: %s", msg.Channel().UUID())
 			}
 
-			payload := &hsmPayload{
-				To:   msg.URN().Path(),
-				Type: "hsm",
-			}
-			payload.HSM.Namespace = namespace
-			payload.HSM.ElementName = templating.Template.Name
-			payload.HSM.Language.Policy = "deterministic"
-			payload.HSM.Language.Code = templating.Language
-			for _, v := range templating.Variables {
-				payload.HSM.LocalizableParams = append(payload.HSM.LocalizableParams, LocalizableParam{Default: v})
-			}
-
 			externalID := ""
-			externalID, log, err = sendWhatsAppMsg(msg, sendURL, token, payload)
-			status.AddLog(log)
-
-			if err != nil {
-				log.WithError("Error sending message", err)
+			if msg.Channel().BoolConfigForKey(configHSMSupport, false) {
+				payload := hsmPayload{
+					To:   msg.URN().Path(),
+					Type: "hsm",
+				}
+				payload.HSM.Namespace = namespace
+				payload.HSM.ElementName = templating.Template.Name
+				payload.HSM.Language.Policy = "deterministic"
+				payload.HSM.Language.Code = templating.Language
+				for _, v := range templating.Variables {
+					payload.HSM.LocalizableParams = append(payload.HSM.LocalizableParams, LocalizableParam{Default: v})
+				}
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
 			} else {
+
+				payload := templatePayload{
+					To:   msg.URN().Path(),
+					Type: "template",
+				}
+				payload.Template.Namespace = namespace
+				payload.Template.Name = templating.Template.Name
+				payload.Template.Language.Policy = "deterministic"
+				payload.Template.Language.Code = templating.Language
+
+				component := &Component{Type: "body"}
+
+				for _, v := range templating.Variables {
+					component.Parameters = append(component.Parameters, Param{Type: "text", Text: v})
+				}
+				payload.Template.Components = append(payload.Template.Components, *component)
+
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
+			}
+
+			// add logs to our status
+			for _, log := range logs {
+				status.AddLog(log)
+			}
+
+			if err == nil {
 				status.SetExternalID(externalID)
 			}
 		} else {
-			parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
+			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
 			externalID := ""
 			for i, part := range parts {
 				payload := mtTextPayload{
@@ -513,12 +558,13 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 					Type: "text",
 				}
 				payload.Text.Body = part
+				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, token, payload)
 
-				externalID, log, err = sendWhatsAppMsg(msg, sendURL, token, payload)
-				status.AddLog(log)
-
+				// add logs to our status
+				for _, log := range logs {
+					status.AddLog(log)
+				}
 				if err != nil {
-					log.WithError("Error sending message", err)
 					break
 				}
 
@@ -532,73 +578,182 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	// we are wired it there were no errors
 	if err == nil {
+		if wppID != "" {
+			newURN, _ := urns.NewWhatsAppURN(wppID)
+			err = status.SetUpdatedURN(msg.URN(), newURN)
+
+			if err != nil {
+				elapsed := time.Now().Sub(start)
+				log := courier.NewChannelLogFromError("unable to update contact URN", msg.Channel(), msg.ID(), elapsed, err)
+				status.AddLog(log)
+			}
+		}
 		status.SetStatus(courier.MsgWired)
 	}
 
 	return status, nil
 }
 
-func uploadMediaToWhatsApp(msg courier.Msg, url string, token string, attachmentMimeType string, attachmentURL string) (string, *courier.ChannelLog, error) {
-	// retrieve the media to be sent from S3
-	req, _ := http.NewRequest(http.MethodGet, attachmentURL, nil)
-	s3rr, err := utils.MakeHTTPRequest(req)
-	if err != nil {
-		return "", courier.NewChannelLogFromRR("Media Fetch", msg.Channel(), msg.ID(), s3rr), err
-	}
-
-	// upload it to WhatsApp in exchange for a media id
-	waReq, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(s3rr.Body))
-	waReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	waReq.Header.Set("Content-Type", attachmentMimeType)
-	waReq.Header.Set("User-Agent", utils.HTTPUserAgent)
-	wArr, err := utils.MakeHTTPRequest(waReq)
-
-	log := courier.NewChannelLogFromRR("Media Upload success", msg.Channel(), msg.ID(), wArr)
-
-	if err != nil {
-		return "", log, err
-	}
-
-	mediaID, err := jsonparser.GetString(wArr.Body, "media", "[0]", "id")
-	if err != nil {
-		return "", log, err
-	}
-
-	return mediaID, log, nil
-}
-
-func sendWhatsAppMsg(msg courier.Msg, url string, token string, payload interface{}) (string, *courier.ChannelLog, error) {
+func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, token string, payload interface{}) (string, string, []*courier.ChannelLog, error) {
+	start := time.Now()
 	jsonBody, err := json.Marshal(payload)
-	if err != nil {
-		log := courier.NewChannelLog("unable to build JSON body", msg.Channel(), msg.ID(), "", "", courier.NilStatusCode, "", "", time.Duration(0), err)
-		return "", log, err
-	}
 
-	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("User-Agent", utils.HTTPUserAgent)
+	if err != nil {
+		elapsed := time.Now().Sub(start)
+		log := courier.NewChannelLogFromError("unable to build JSON body", msg.Channel(), msg.ID(), elapsed, err)
+		return "", "", []*courier.ChannelLog{log}, err
+	}
+	req, _ := http.NewRequest(http.MethodPost, sendPath.String(), bytes.NewReader(jsonBody))
+	req.Header = buildWhatsAppRequestHeader(token)
 	rr, err := utils.MakeHTTPRequest(req)
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	errPayload := &mtErrorPayload{}
+	err = json.Unmarshal(rr.Body, errPayload)
+
+	// handle send msg errors
+	if err == nil && len(errPayload.Errors) > 0 {
+		if !hasWhatsAppContactError(*errPayload) {
+			err := errors.Errorf("received error from send endpoint: %s", errPayload.Errors[0].Title)
+			return "", "", []*courier.ChannelLog{log}, err
+		}
+		// check contact
+		baseURL := fmt.Sprintf("%s://%s", sendPath.Scheme, sendPath.Host)
+		rrCheck, err := checkWhatsAppContact(baseURL, token, msg.URN())
+
+		if rrCheck == nil {
+			elapsed := time.Now().Sub(start)
+			checkLog := courier.NewChannelLogFromError("unable to build contact check request", msg.Channel(), msg.ID(), elapsed, err)
+			return "", "", []*courier.ChannelLog{log, checkLog}, err
+		}
+		checkLog := courier.NewChannelLogFromRR("Contact check", msg.Channel(), msg.ID(), rrCheck).WithError("Status Error", err)
+
+		if err != nil {
+			return "", "", []*courier.ChannelLog{log, checkLog}, err
+		}
+		// update contact URN and msg destiny with returned wpp id
+		wppID, err := jsonparser.GetString(rrCheck.Body, "contacts", "[0]", "wa_id")
+
+		if err == nil {
+			var updatedPayload interface{}
+
+			// handle msg type casting
+			switch v := payload.(type) {
+			case mtTextPayload:
+				v.To = wppID
+				updatedPayload = v
+			case mtImagePayload:
+				v.To = wppID
+				updatedPayload = v
+			case mtVideoPayload:
+				v.To = wppID
+				updatedPayload = v
+			case mtAudioPayload:
+				v.To = wppID
+				updatedPayload = v
+			case mtDocumentPayload:
+				v.To = wppID
+				updatedPayload = v
+			case templatePayload:
+				v.To = wppID
+				updatedPayload = v
+			case hsmPayload:
+				v.To = wppID
+				updatedPayload = v
+			}
+			// marshal updated payload
+			if updatedPayload != nil {
+				payload = updatedPayload
+				jsonBody, err = json.Marshal(payload)
+
+				if err != nil {
+					elapsed := time.Now().Sub(start)
+					log := courier.NewChannelLogFromError("unable to build JSON body", msg.Channel(), msg.ID(), elapsed, err)
+					return "", "", []*courier.ChannelLog{log, checkLog}, err
+				}
+			}
+		}
+		// try send msg again
+		reqRetry, _ := http.NewRequest(http.MethodPost, sendPath.String(), bytes.NewReader(jsonBody))
+		reqRetry.Header = buildWhatsAppRequestHeader(token)
+
+		if retryParam != "" {
+			reqRetry.URL.RawQuery = fmt.Sprintf("%s=1", retryParam)
+		}
+		rrRetry, err := utils.MakeHTTPRequest(reqRetry)
+		retryLog := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rrRetry).WithError("Message Send Error", err)
+
+		if err != nil {
+			return "", "", []*courier.ChannelLog{log, checkLog, retryLog}, err
+		}
+		externalID, err := getSendWhatsAppMsgId(rrRetry)
+		return wppID, externalID, []*courier.ChannelLog{log, checkLog, retryLog}, err
+	}
+	externalID, err := getSendWhatsAppMsgId(rr)
+	return "", externalID, []*courier.ChannelLog{log}, err
+}
+
+func buildWhatsAppRequestHeader(token string) http.Header {
+	header := http.Header{
+		"Content-Type":  []string{"application/json"},
+		"Accept":        []string{"application/json"},
+		"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
+		"User-Agent":    []string{utils.HTTPUserAgent},
+	}
+	return header
+}
+
+func hasWhatsAppContactError(payload mtErrorPayload) bool {
+	for _, err := range payload.Errors {
+		if err.Code == 1006 && err.Title == "Resource not found" && err.Details == "unknown contact" {
+			return true
+		}
+	}
+	return false
+}
+
+func getSendWhatsAppMsgId(rr *utils.RequestResponse) (string, error) {
+	if externalID, err := jsonparser.GetString(rr.Body, "messages", "[0]", "id"); err == nil {
+		return externalID, nil
+	} else {
+		return "", errors.Errorf("unable to get message id from response body")
+	}
+}
+
+type mtContactCheckPayload struct {
+	Blocking   string   `json:"blocking"`
+	Contacts   []string `json:"contacts"`
+	ForceCheck bool     `json:"force_check"`
+}
+
+func checkWhatsAppContact(baseURL string, token string, urn urns.URN) (*utils.RequestResponse, error) {
+	payload := mtContactCheckPayload{
+		Blocking:   "wait",
+		Contacts:   []string{fmt.Sprintf("+%s", urn.Path())},
+		ForceCheck: true,
+	}
+	reqBody, err := json.Marshal(payload)
+
 	if err != nil {
-		return "", log, err
+		return nil, err
 	}
+	sendURL := fmt.Sprintf("%s/v1/contacts", baseURL)
+	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(reqBody))
+	req.Header = buildWhatsAppRequestHeader(token)
+	rr, err := utils.MakeHTTPRequest(req)
 
-	errorTitle, err := jsonparser.GetString(rr.Body, "errors", "[0]", "title")
-	if errorTitle != "" {
-		err = errors.Errorf("received error from send endpoint: %s", errorTitle)
-		return "", log, err
-	}
-
-	// grab the id
-	externalID, err := jsonparser.GetString(rr.Body, "messages", "[0]", "id")
 	if err != nil {
-		err := errors.Errorf("unable to get message id from response body")
-		return "", log, err
+		return rr, err
 	}
-
-	return externalID, log, err
+	// check contact status
+	if status, err := jsonparser.GetString(rr.Body, "contacts", "[0]", "status"); err == nil {
+		if status == "valid" {
+			return rr, nil
+		} else {
+			return rr, errors.Errorf(`contact status is "%s"`, status)
+		}
+	} else {
+		return rr, err
+	}
 }
 
 func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {

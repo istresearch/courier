@@ -59,6 +59,7 @@ func init() {
 	courier.RegisterHandler(newTWIMLHandler("TW", "TWIML API", true))
 	courier.RegisterHandler(newTWIMLHandler("T", "Twilio", true))
 	courier.RegisterHandler(newTWIMLHandler("TMS", "Twilio Messaging Service", true))
+	courier.RegisterHandler(newTWIMLHandler("TWA", "Twilio Whatsapp", true))
 	courier.RegisterHandler(newTWIMLHandler("SW", "SignalWire", false))
 }
 
@@ -92,6 +93,7 @@ var statusMapping = map[string]courier.MsgStatusValue{
 	"failed":      courier.MsgFailed,
 	"sent":        courier.MsgSent,
 	"delivered":   courier.MsgDelivered,
+	"read":        courier.MsgDelivered,
 	"undelivered": courier.MsgFailed,
 }
 
@@ -203,7 +205,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	channel := msg.Channel()
 
 	status := h.Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-	parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
+	parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
 	for i, part := range parts {
 		// build our request
 		form := url.Values{
@@ -297,7 +299,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 func (h *handler) baseURL(c courier.Channel) string {
 	// Twilio channels use the Twili base URL
-	if c.ChannelType() == "T" || c.ChannelType() == "TMS" {
+	if c.ChannelType() == "T" || c.ChannelType() == "TMS" || c.ChannelType() == "TWA" {
 		return twilioBaseURL
 	}
 
