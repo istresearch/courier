@@ -19,6 +19,10 @@ import (
 	validator "gopkg.in/go-playground/validator.v9"
 )
 
+const (
+	outgoingEndpoint = "/postoffice/engage/outgoing"
+)
+
 var (
 	maxMsgLength = 20000
 	validate     = validator.New()
@@ -169,7 +173,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			return status, err
 		}
 
-		sendURL := fmt.Sprintf("%s/postoffice/outgoing", apiUrl)
+		sendURL := fmt.Sprintf("%s%s", apiUrl, outgoingEndpoint)
 		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
 		req.Header.Add("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Accept", "application/json")
