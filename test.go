@@ -32,6 +32,7 @@ type MockBackend struct {
 	outgoingMsgs    []Msg
 	msgStatuses     []MsgStatus
 	channelEvents   []ChannelEvent
+	channelLogs     []*ChannelLog
 	lastContactName string
 
 	sentMsgs  map[MsgID]bool
@@ -88,6 +89,14 @@ func (mb *MockBackend) GetLastChannelEvent() (ChannelEvent, error) {
 	return mb.channelEvents[len(mb.channelEvents)-1], nil
 }
 
+// GetLastChannelLog returns the last channel log written to the server
+func (mb *MockBackend) GetLastChannelLog() (*ChannelLog, error) {
+	if len(mb.channelLogs) == 0 {
+		return nil, errors.New("no channel logs")
+	}
+	return mb.channelLogs[len(mb.channelLogs)-1], nil
+}
+
 // GetLastMsgStatus returns the last status written to the server
 func (mb *MockBackend) GetLastMsgStatus() (MsgStatus, error) {
 	if len(mb.msgStatuses) == 0 {
@@ -107,13 +116,13 @@ func (mb *MockBackend) NewIncomingMsg(channel Channel, urn urns.URN, text string
 }
 
 // NewOutgoingMsg creates a new outgoing message from the given params
-func (mb *MockBackend) NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, replies []string, responseToID int64, responseToExternalID string) Msg {
+func (mb *MockBackend) NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToID int64, responseToExternalID string) Msg {
 	msgResponseToID := NilMsgID
 	if responseToID != 0 {
 		msgResponseToID = NewMsgID(responseToID)
 	}
 
-	return &mockMsg{channel: channel, id: id, urn: urn, text: text, highPriority: highPriority, quickReplies: replies, responseToID: msgResponseToID, responseToExternalID: responseToExternalID}
+	return &mockMsg{channel: channel, id: id, urn: urn, text: text, highPriority: highPriority, quickReplies: quickReplies, topic: topic, responseToID: msgResponseToID, responseToExternalID: responseToExternalID}
 }
 
 // PushOutgoingMsg is a test method to add a message to our queue of messages to send
@@ -161,6 +170,12 @@ func (mb *MockBackend) MarkOutgoingMsgComplete(ctx context.Context, msg Msg, s M
 
 // WriteChannelLogs writes the passed in channel logs to the DB
 func (mb *MockBackend) WriteChannelLogs(ctx context.Context, logs []*ChannelLog) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	for _, log := range logs {
+		mb.channelLogs = append(mb.channelLogs, log)
+	}
 	return nil
 }
 
@@ -512,6 +527,7 @@ type mockMsg struct {
 	contactName          string
 	highPriority         bool
 	quickReplies         []string
+	topic                string
 	responseToID         MsgID
 	responseToExternalID string
 	metadata             json.RawMessage
@@ -534,6 +550,7 @@ func (m *mockMsg) URNAuth() string              { return m.urnAuth }
 func (m *mockMsg) ContactName() string          { return m.contactName }
 func (m *mockMsg) HighPriority() bool           { return m.highPriority }
 func (m *mockMsg) QuickReplies() []string       { return m.quickReplies }
+func (m *mockMsg) Topic() string                { return m.topic }
 func (m *mockMsg) ResponseToID() MsgID          { return m.responseToID }
 func (m *mockMsg) ResponseToExternalID() string { return m.responseToExternalID }
 func (m *mockMsg) Metadata() json.RawMessage    { return m.metadata }
@@ -558,6 +575,8 @@ func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = meta
 type mockMsgStatus struct {
 	channel    Channel
 	id         MsgID
+	oldURN     urns.URN
+	newURN     urns.URN
 	externalID string
 	status     MsgStatusValue
 	createdOn  time.Time
@@ -568,6 +587,21 @@ type mockMsgStatus struct {
 func (m *mockMsgStatus) ChannelUUID() ChannelUUID { return m.channel.UUID() }
 func (m *mockMsgStatus) ID() MsgID                { return m.id }
 func (m *mockMsgStatus) EventID() int64           { return int64(m.id) }
+
+func (m *mockMsgStatus) SetUpdatedURN(old, new urns.URN) error {
+	m.oldURN = old
+	m.newURN = new
+	return nil
+}
+func (m *mockMsgStatus) UpdatedURN() (urns.URN, urns.URN) {
+	return m.oldURN, m.newURN
+}
+func (m *mockMsgStatus) HasUpdatedURN() bool {
+	if m.oldURN != urns.NilURN && m.newURN != urns.NilURN {
+		return true
+	}
+	return false
+}
 
 func (m *mockMsgStatus) ExternalID() string      { return m.externalID }
 func (m *mockMsgStatus) SetExternalID(id string) { m.externalID = id }

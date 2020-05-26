@@ -176,7 +176,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
-	parts := handlers.SplitMsg(handlers.GetTextAndAttachments(msg), maxMsgLength)
+	parts := handlers.SplitMsgByChannel(msg.Channel(), handlers.GetTextAndAttachments(msg), maxMsgLength)
 	for _, part := range parts {
 		zvMsg := mtPayload{}
 		zvMsg.SendSMSRequest.To = strings.TrimLeft(msg.URN().Path(), "+")
@@ -205,7 +205,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		responseMsgStatus, _ := jsonparser.GetString(rr.Body, "sendSmsResponse", "statusCode")
 		msgStatus, found := statusMapping[responseMsgStatus]
 		if msgStatus == courier.MsgErrored || !found {
-			return status, errors.Errorf("received non-success response from Zenvia '%s'", responseMsgStatus)
+			log.WithError("Message Send Error", errors.Errorf("received non-success response from Zenvia '%s'", responseMsgStatus))
+			return status, nil
 		}
 
 		status.SetStatus(courier.MsgWired)
