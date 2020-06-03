@@ -63,6 +63,10 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
+	if len(strings.Trim(payload.Text, " ")) == 0 && len(payload.Media) == 0 {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("no message content provided"))
+	}
+
 	var urn urns.URN
 	mode := strings.ToUpper(payload.Mode)
 
@@ -233,7 +237,7 @@ Content-Type: application/json; charset=utf-8
 
 type incomingMessage struct {
 	Time      ISO8601WithMilli    `json:"time" validate:"required"`
-	Text      string `json:"text" validate:"required"`
+	Text      string `json:"text"`
 	Contact struct {
 		Name string `json:"name"`
 		Value  string `json:"value" validate:"required"`
