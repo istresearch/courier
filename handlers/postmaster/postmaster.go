@@ -193,7 +193,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 	}
 
-	status.SetStatus(courier.MsgWired)
+	status.SetStatus(courier.MsgPending)
 
 	return status, nil
 }
