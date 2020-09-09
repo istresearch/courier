@@ -774,6 +774,49 @@ func (b *backend) Cleanup() error {
 	return b.redisPool.Close()
 }
 
+func (b *backend) GetCurrentQueuesForChannel(ctx context.Context, uuid courier.ChannelUUID) ([]string, error) {
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	return queue.GetAllChannelQueues(rc, uuid.String())
+}
+
+func (b *backend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]courier.Msg, error) {
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	rawMsgs, _ := queue.PopWithoutChecks(rc, queueKey + "/0", count)
+
+	msgs := make([]courier.Msg, 0)
+
+	for m, _ := range rawMsgs {
+		dbMsgs := make([]DBMsg, 0)
+		err := json.Unmarshal([]byte(m), &dbMsgs)
+
+		if err != nil {
+			logrus.WithError(err).Error("unable to unmarshal message")
+			continue
+		} else if len(dbMsgs) == 0 {
+			logrus.Error("Invalid message data pulled from queue")
+			continue
+		}
+
+		dbMsg := dbMsgs[0]
+
+		// populate the channel on our db msg
+		channel, err := b.GetChannel(ctx, courier.AnyChannelType, dbMsg.ChannelUUID_)
+		if err != nil {
+			logrus.WithError(err).Error("unable to get message channel")
+			continue
+		}
+		dbMsg.channel = channel.(*DBChannel)
+
+		msgs = append(msgs, &dbMsg)
+	}
+
+	return msgs, nil
+}
+
 // RedisPool returns the redisPool for this backend
 func (b *backend) RedisPool() *redis.Pool {
 	return b.redisPool

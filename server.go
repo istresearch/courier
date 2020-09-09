@@ -108,6 +108,9 @@ func (s *server) Start() error {
 	s.router.Get("/", s.handleIndex)
 	s.router.Get("/status", s.handleStatus)
 
+	p := NewPurgeHandler(s)
+	p.PurgeChannel(nil, nil)
+
 	// initialize our handlers
 	s.initializeChannelHandlers()
 
