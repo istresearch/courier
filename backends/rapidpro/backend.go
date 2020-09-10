@@ -778,14 +778,27 @@ func (b *backend) GetCurrentQueuesForChannel(ctx context.Context, uuid courier.C
 	rc := b.RedisPool().Get()
 	defer rc.Close()
 
-	return queue.GetAllChannelQueues(rc, uuid.String())
+	dbQueues, err := queue.GetAllChannelQueues(rc, uuid.String())
+
+	if err != nil {
+		return nil, err
+	}
+
+	queues := make([]string, 0)
+
+	for _, q := range dbQueues {
+		queues = append(queues, q + "/0")
+		queues = append(queues, q + "/1")
+	}
+
+	return queues, nil
 }
 
 func (b *backend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]courier.Msg, error) {
 	rc := b.RedisPool().Get()
 	defer rc.Close()
 
-	rawMsgs, _ := queue.PopWithoutChecks(rc, queueKey + "/0", count)
+	rawMsgs, _ := queue.PopWithoutChecks(rc, queueKey, count)
 
 	msgs := make([]courier.Msg, 0)
 
@@ -801,17 +814,17 @@ func (b *backend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]c
 			continue
 		}
 
-		dbMsg := dbMsgs[0]
+		for k, _ := range dbMsgs {
+			// populate the channel on our db msg
+			channel, err := b.GetChannel(ctx, courier.AnyChannelType, dbMsgs[k].ChannelUUID_)
+			if err != nil {
+				logrus.WithError(err).Error("unable to get message channel")
+				continue
+			}
+			dbMsgs[k].channel = channel.(*DBChannel)
 
-		// populate the channel on our db msg
-		channel, err := b.GetChannel(ctx, courier.AnyChannelType, dbMsg.ChannelUUID_)
-		if err != nil {
-			logrus.WithError(err).Error("unable to get message channel")
-			continue
+			msgs = append(msgs, &dbMsgs[k])
 		}
-		dbMsg.channel = channel.(*DBChannel)
-
-		msgs = append(msgs, &dbMsg)
 	}
 
 	return msgs, nil

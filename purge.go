@@ -3,6 +3,7 @@ package courier
 import (
 	"context"
 	"fmt"
+	"github.com/go-chi/chi"
 	"github.com/sirupsen/logrus"
 	"net/http"
 )
@@ -19,11 +20,11 @@ func NewPurgeHandler(s Server) *PurgeHandler{
 }
 
 func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
-	//uuid, err := NewChannelUUID("b2a8151e-5d21-42e6-8077-3abcf9e38173")
-	uuid, err := NewChannelUUID("b2a8151e-5d21-42e6-8077-3abcf9e38173")
+	uuid, err := NewChannelUUID(chi.URLParam(r, "uuid"))
 
-	if err != nil {
+	if err != nil || len(uuid.String()) == 0 {
 		logrus.Error("Invalid channel ID provided")
+		WriteDataResponse(context.Background(), w, http.StatusBadRequest, "invalid channel ID", nil)
 		return
 	}
 
@@ -31,11 +32,17 @@ func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logrus.Error(err)
+		WriteDataResponse(context.Background(), w, http.StatusInternalServerError, "Error while fetching queues", nil)
+		return
 	} else if len(queues) == 0 {
 		logrus.Info("No queues found")
+		WriteDataResponse(context.Background(), w, http.StatusOK, "No outgoing queues found", nil)
+		return
 	}
 
-	p.PurgeRoutine(queues)
+	go p.PurgeRoutine(queues)
+
+	WriteDataResponse(context.Background(), w, http.StatusOK, "Ok", nil)
 }
 
 func (p *PurgeHandler) PurgeRoutine(queueKeys []string) {
@@ -49,7 +56,7 @@ func (p *PurgeHandler) PurgeRoutine(queueKeys []string) {
 		hasMsg := true
 		// Iterate through messages until we're out of them.
 		for hasMsg == true {
-			msgs, _ := p.server.Backend().PopMsgs(context.Background(), v, 1)
+			msgs, _ := p.server.Backend().PopMsgs(context.Background(), v, 10)
 
 			if len(msgs) == 0 {
 				logrus.Debug("out of messages")

@@ -109,7 +109,8 @@ func (s *server) Start() error {
 	s.router.Get("/status", s.handleStatus)
 
 	p := NewPurgeHandler(s)
-	p.PurgeChannel(nil, nil)
+
+	s.router.Post("/purge/{uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}", p.PurgeChannel)
 
 	// initialize our handlers
 	s.initializeChannelHandlers()
