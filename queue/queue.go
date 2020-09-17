@@ -262,3 +262,62 @@ func StartDethrottler(redis *redis.Pool, quitter chan bool, wg *sync.WaitGroup, 
 		}
 	}()
 }
+
+func GetAllChannelQueues(conn redis.Conn, channelID string) ([]string, error) {
+	ret, err := redis.StringMap(luaGetAllChannelQueues.Do(conn, channelID))
+
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0)
+	for k,_ := range ret {
+		keys = append(keys, k)
+	}
+
+	return keys, err
+}
+
+var luaGetAllChannelQueues = redis.NewScript(1, `-- KEYS: [ChannelID]
+	local cursor = "0";
+	local list = {};
+	local val = "";
+	
+	repeat
+		local result = redis.call("ZSCAN", "msgs:active", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+
+	repeat
+		local result = redis.call("ZSCAN", "msgs:throttled", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+
+	repeat
+		local result = redis.call("ZSCAN", "msgs:active", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+	
+	return list;
+`)
+
+func PopWithoutChecks(conn redis.Conn, queue string, count int) (map[string]string, error) {
+	ret, err := redis.StringMap(conn.Do("ZPOPMIN", queue, count))
+
+	return ret, err
+}

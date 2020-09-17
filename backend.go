@@ -74,6 +74,12 @@ type Backend interface {
 	// implement their own logic to implement this.
 	IsMsgLoop(ctx context.Context, msg Msg) (bool, error)
 
+	// Loops through the active and throttled queues to find the current queue keys for a specific channel
+	GetCurrentQueuesForChannel(context.Context, ChannelUUID) ([]string, error)
+
+	// Pops n messages from a queue without checking if the message is able to be popped, if there is throttling, etc.
+	PopMsgs(context.Context, string, int) ([]Msg, error)
+
 	// MarkOutgoingMsgComplete marks the passed in message as having been processed. Note this should be called even in the case
 	// of errors during sending as it will manage the number of active workers per channel. The optional status parameter can be
 	// used to determine any sort of deduping of msg sends

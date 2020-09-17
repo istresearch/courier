@@ -368,6 +368,18 @@ func (mb *MockBackend) RedisPool() *redis.Pool {
 	return mb.redisPool
 }
 
+func (mb *MockBackend) PurgeOutgoingQueue(channelID string) error {
+	return nil
+}
+
+func (mb *MockBackend) GetCurrentQueuesForChannel(ctx context.Context, uuid ChannelUUID) ([]string, error) {
+	return nil, nil
+}
+
+func (mb *MockBackend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]Msg, error) {
+	return nil, nil
+}
+
 func buildMockBackend(config *Config) Backend {
 	return NewMockBackend()
 }
