@@ -73,7 +73,7 @@ func (p *PurgeHandler) PurgeRoutine(queueKeys []string) {
 
 	// Iterate throuhg each queue for the channel, then iterate messages
 	for _, v := range queueKeys {
-		logrus.Info(v)
+		logrus.WithField("queue", v).Info("Purging queue")
 
 		hasMsg := true
 		// Iterate through messages until we're out of them.
