@@ -774,6 +774,13 @@ func (b *backend) Cleanup() error {
 	return b.redisPool.Close()
 }
 
+func (b *backend) GetActivePurges(ctx context.Context) ([]string, error) {
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	return queue.GetActivePurges(rc)
+}
+
 func (b *backend) GetCurrentQueuesForChannel(ctx context.Context, uuid courier.ChannelUUID) ([]string, error) {
 	rc := b.RedisPool().Get()
 	defer rc.Close()
@@ -792,6 +799,24 @@ func (b *backend) GetCurrentQueuesForChannel(ctx context.Context, uuid courier.C
 	}
 
 	return queues, nil
+}
+
+func (b *backend) PrepareQueuesForPurge(ctx context.Context, queues []string) ([]string, error) {
+	newQueues := make([]string, 0)
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	for _, q := range queues {
+		newQ, err := queue.PrepareQueueForPurge(rc, q)
+
+		if err != nil {
+			return newQueues, err
+		}
+
+		newQueues = append(newQueues, newQ)
+	}
+
+	return newQueues, nil
 }
 
 func (b *backend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]courier.Msg, error) {
