@@ -40,9 +40,31 @@ func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go p.PurgeRoutine(queues)
+	purgeQueues, err := p.server.Backend().PrepareQueuesForPurge(context.Background(), queues)
+
+	if err != nil {
+		logrus.Error(err)
+		WriteDataResponse(context.Background(), w, http.StatusInternalServerError,
+			"Error while preparing queues for purge", nil)
+		return
+	}
+
+	go p.PurgeRoutine(purgeQueues)
 
 	WriteDataResponse(context.Background(), w, http.StatusOK, "Ok", nil)
+}
+
+func (p PurgeHandler) ResumePurges() {
+	purgeQueues, err := p.server.Backend().GetActivePurges(context.Background())
+
+	if err == nil && len(purgeQueues) == 0 {
+		logrus.Debug("No purges to resume")
+	} else if err != nil {
+		logrus.WithError(err).Error("Could not resume purges")
+	} else {
+		logrus.WithField("queues", purgeQueues).Debug("Resuming purge")
+		go p.PurgeRoutine(purgeQueues)
+	}
 }
 
 func (p *PurgeHandler) PurgeRoutine(queueKeys []string) {
@@ -51,7 +73,7 @@ func (p *PurgeHandler) PurgeRoutine(queueKeys []string) {
 
 	// Iterate throuhg each queue for the channel, then iterate messages
 	for _, v := range queueKeys {
-		logrus.Info(v)
+		logrus.WithField("queue", v).Info("Purging queue")
 
 		hasMsg := true
 		// Iterate through messages until we're out of them.

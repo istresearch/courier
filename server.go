@@ -109,6 +109,7 @@ func (s *server) Start() error {
 	s.router.Get("/status", s.handleStatus)
 
 	p := NewPurgeHandler(s)
+	p.ResumePurges()
 
 	s.router.Post("/purge/{uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}", p.PurgeChannel)
 
