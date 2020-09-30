@@ -774,6 +774,87 @@ func (b *backend) Cleanup() error {
 	return b.redisPool.Close()
 }
 
+func (b *backend) GetActivePurges(ctx context.Context) ([]string, error) {
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	return queue.GetActivePurges(rc)
+}
+
+func (b *backend) GetCurrentQueuesForChannel(ctx context.Context, uuid courier.ChannelUUID) ([]string, error) {
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	dbQueues, err := queue.GetAllChannelQueues(rc, uuid.String())
+
+	if err != nil {
+		return nil, err
+	}
+
+	queues := make([]string, 0)
+
+	for _, q := range dbQueues {
+		queues = append(queues, q + "/0")
+		queues = append(queues, q + "/1")
+	}
+
+	return queues, nil
+}
+
+func (b *backend) PrepareQueuesForPurge(ctx context.Context, queues []string) ([]string, error) {
+	newQueues := make([]string, 0)
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	for _, q := range queues {
+		newQ, err := queue.PrepareQueueForPurge(rc, q)
+
+		if err != nil {
+			return newQueues, err
+		}
+
+		newQueues = append(newQueues, newQ)
+	}
+
+	return newQueues, nil
+}
+
+func (b *backend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]courier.Msg, error) {
+	rc := b.RedisPool().Get()
+	defer rc.Close()
+
+	rawMsgs, _ := queue.PopWithoutChecks(rc, queueKey, count)
+
+	msgs := make([]courier.Msg, 0)
+
+	for m, _ := range rawMsgs {
+		dbMsgs := make([]DBMsg, 0)
+		err := json.Unmarshal([]byte(m), &dbMsgs)
+
+		if err != nil {
+			logrus.WithError(err).Error("unable to unmarshal message")
+			continue
+		} else if len(dbMsgs) == 0 {
+			logrus.Error("Invalid message data pulled from queue")
+			continue
+		}
+
+		for k, _ := range dbMsgs {
+			// populate the channel on our db msg
+			channel, err := b.GetChannel(ctx, courier.AnyChannelType, dbMsgs[k].ChannelUUID_)
+			if err != nil {
+				logrus.WithError(err).Error("unable to get message channel")
+				continue
+			}
+			dbMsgs[k].channel = channel.(*DBChannel)
+
+			msgs = append(msgs, &dbMsgs[k])
+		}
+	}
+
+	return msgs, nil
+}
+
 // RedisPool returns the redisPool for this backend
 func (b *backend) RedisPool() *redis.Pool {
 	return b.redisPool

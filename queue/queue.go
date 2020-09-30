@@ -1,7 +1,9 @@
 package queue
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -261,4 +263,114 @@ func StartDethrottler(redis *redis.Pool, quitter chan bool, wg *sync.WaitGroup, 
 			}
 		}
 	}()
+}
+
+func GetActivePurges(conn redis.Conn) ([]string, error) {
+	return redis.Strings(conn.Do("LRANGE", "msgs:active_purge", "0", "-1"))
+}
+
+func GetAllChannelQueues(conn redis.Conn, channelID string) ([]string, error) {
+	ret, err := redis.StringMap(luaGetAllChannelQueues.Do(conn, channelID))
+
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0)
+	for k,_ := range ret {
+		keys = append(keys, k)
+	}
+
+	return keys, err
+}
+
+var luaGetAllChannelQueues = redis.NewScript(1, `-- KEYS: [ChannelID]
+	local cursor = "0";
+	local list = {};
+	local val = "";
+	
+	repeat
+		local result = redis.call("ZSCAN", "msgs:active", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+
+	repeat
+		local result = redis.call("ZSCAN", "msgs:throttled", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+
+	repeat
+		local result = redis.call("ZSCAN", "msgs:future", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+
+	repeat
+		local result = redis.call("ZSCAN", "msgs:active", cursor, "MATCH", "msgs:" .. KEYS[1] .. "*", "COUNT", "100");
+
+		cursor = result[1];
+
+		for _, v in ipairs(result[2]) do
+          list[#list+1] = v
+		end;
+	until cursor == "0";
+	
+	return list;
+`)
+
+func PopWithoutChecks(conn redis.Conn, queue string, count int) (map[string]string, error) {
+	ret, err := redis.StringMap(conn.Do("ZPOPMIN", queue, count))
+
+	// Remove entry from purge queue if message queue is empty
+	if err == nil && len(ret) == 0 {
+		redis.Int(conn.Do("LREM", "msgs:active_purge", "0", queue))
+	}
+
+	return ret, err
+}
+
+func PrepareQueueForPurge(conn redis.Conn, queue string) (string, error) {
+	exists, err := redis.Int(conn.Do("EXISTS", queue))
+
+	if err != nil {
+		return "", err
+	}
+
+	if exists != 1 {
+		return "", err
+	}
+
+	newName := "msgs:purge:" + queue
+
+	rename, err := redis.String(conn.Do("RENAME", queue, newName))
+
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.HasPrefix(rename, "OK") {
+		return "", errors.New("could not rename queue: " + rename)
+	}
+
+	_, err = redis.Int(conn.Do("LPUSH", "msgs:active_purge", newName))
+
+	if err != nil {
+		return "", errors.New("could not add queue to active purge list: " + newName)
+	}
+
+	return newName, nil
 }
