@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
 	"regexp"
@@ -238,9 +239,16 @@ func (h *handler) PurgeOutgoing(ctx context.Context, channel courier.Channel) er
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 
-	_, err = utils.MakeHTTPRequest(req)
+	rr, err := utils.MakeHTTPRequest(req)
 
-	return err
+	if err != nil {
+		logrus.WithError(err).Error("Could not trigger purge in postoffice")
+		return err
+	}
+
+	logrus.WithField("response",string(rr.Body)).Info("Purge response from postoffice")
+
+	return nil
 }
 
 func getPostofficeEndpoint() (string, error) {
