@@ -24,6 +24,7 @@ type ChannelHandler interface {
 	ChannelType() ChannelType
 	ChannelName() string
 	SendMsg(context.Context, Msg) (MsgStatus, error)
+	PurgeOutgoing(context.Context, Channel) error
 }
 
 // URNDescriber is the interface handlers which can look up URN metadata for new contacts should satisfy.

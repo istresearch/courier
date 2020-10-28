@@ -21,6 +21,7 @@ import (
 
 const (
 	outgoingEndpoint = "/postoffice/engage/outgoing"
+	purgeEndpoint = "/postoffice/engage/outgoing/purge"
 )
 
 var (
@@ -198,6 +199,50 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	return status, nil
 }
 
+func (h *handler) PurgeOutgoing(ctx context.Context, channel courier.Channel) error {
+	chatMode := channel.ConfigForKey("chat_mode", "").(string)
+	if chatMode == "" {
+		return fmt.Errorf("invalid chat mode")
+	}
+
+	deviceID := channel.ConfigForKey("device_id", "").(string)
+	if deviceID == "" {
+		return fmt.Errorf("invalid chat mode")
+	}
+
+	pr := purgeRequest{
+		DeviceID: deviceID,
+		Mode:     chatMode,
+	}
+
+	apiUrl,err := getPostofficeEndpoint()
+
+	if err != nil {
+		return err
+	}
+
+	apiKey, err := getPostofficeAPIKey()
+
+	if err != nil {
+		return err
+	}
+
+	jsonBody, err := json.Marshal(pr)
+	if err != nil {
+		return err
+	}
+
+	sendURL := fmt.Sprintf("%s%s", apiUrl, purgeEndpoint)
+	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
+	req.Header.Add("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+
+	_, err = utils.MakeHTTPRequest(req)
+
+	return err
+}
+
 func getPostofficeEndpoint() (string, error) {
 	apiUrl, exists := os.LookupEnv("COURIER_POSTOFFICE_ENDPOINT")
 
@@ -286,4 +331,15 @@ type outgoingMessage struct {
 type messageStatus struct {
 	MessageID string `json:"message_id" validate:"required"`
 	Status string `json:"status" validate:"required"`
+}
+
+/*
+{
+	"device_id": "123",
+	"mode": "SMS"
+}
+ */
+type purgeRequest struct {
+	DeviceID string `json:"device_id" validate:"required"`
+	Mode string `json:"mode" validate:"required"`
 }
