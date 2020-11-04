@@ -66,7 +66,7 @@ func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel,
 var defaultSendTestCases = []ChannelSendTestCase{
 	{Label: "Plain Send",
 		Text: "Simple Message ☺", URN: "tel:+11234567890", Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
-		Status: "W",
+		Status: "P",
 		ResponseBody: `{"ack":"ok","error":"","code":200}`, ResponseStatus: 200,
 		RequestBody: `{"text":"Simple Message ☺","contact":{"name":"","value":"+11234567890"},"mode":"SMS","device_id":"123","channel_id":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","id":"10","media":["https://foo.bar/image.jpg"]}`,
 
