@@ -67,7 +67,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	real_channel, err := h.Server().Backend().GetChannelByAddress(ctx, courier.ChannelType("BWD"), payload[0].To)
+	real_channel, err := h.Server().Backend().GetChannelByAddress(ctx, courier.ChannelType("BWD"), courier.ChannelAddress(payload[0].To))
 
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
