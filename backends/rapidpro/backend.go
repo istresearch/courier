@@ -59,12 +59,12 @@ func (b *backend) GetChannel(ctx context.Context, ct courier.ChannelType, uuid c
 	return getChannel(timeout, b.db, ct, uuid)
 }
 
-// GetChannel returns the channel for the passed in type and UUID
-func (b *backend) GetChannelByAddress(ctx context.Context, ct courier.ChannelType, addr string) (courier.Channel, error) {
+// GetChannelByAddress returns the channel with the passed in type and address
+func (b *backend) GetChannelByAddress(ctx context.Context, ct courier.ChannelType, address courier.ChannelAddress) (courier.Channel, error) {
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
 	defer cancel()
 
-	return getChannelByAddress(timeout, b.db, ct, addr)
+	return getChannelByAddress(timeout, b.db, ct, address)
 }
 
 // GetContact returns the contact for the passed in channel and URN

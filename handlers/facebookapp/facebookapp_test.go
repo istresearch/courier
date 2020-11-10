@@ -1,4 +1,4 @@
-package facebook
+package facebookapp
 
 import (
 	"context"
@@ -9,22 +9,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/gocommon/urns"
+	"gopkg.in/go-playground/assert.v1"
 )
 
 var testChannels = []courier.Channel{
-	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "FB", "1234", "",
-		map[string]interface{}{courier.ConfigAuthToken: "a123", courier.ConfigSecret: "mysecret"}),
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "FBA", "1234", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
 
 var helloMsg = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"message": {
 			  "text": "Hello World",
@@ -45,7 +43,7 @@ var helloMsg = `{
 var duplicateMsg = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"message": {
 			  "text": "Hello World",
@@ -62,7 +60,7 @@ var duplicateMsg = `{
 	  "time": 1459991487970
 	},
 	{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"message": {
 			  "text": "Hello World",
@@ -83,7 +81,7 @@ var duplicateMsg = `{
 var invalidURN = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"message": {
 			  "text": "Hello World",
@@ -104,7 +102,7 @@ var invalidURN = `{
 var attachment = `{
 	"object":"page",
 	"entry": [{
-	  	"id": "208685479508187",
+	  	"id": "1234",
 	  	"messaging": [{
 				"message": {
 		  			"mid": "external_id",
@@ -130,7 +128,7 @@ var attachment = `{
 var locationAttachment = `{
 	"object":"page",
 	"entry": [{
-	  	"id": "208685479508187",
+	  	"id": "1234",
 	  	"messaging": [{
 				"message": {
 		  			"mid": "external_id",
@@ -159,7 +157,7 @@ var locationAttachment = `{
 var thumbsUp = `{
 	"object":"page",
 	"entry":[{
-		"id":"208685479508187",
+		"id":"1234",
 		"time":1459991487970,
 		"messaging":[{
 			"sender":{"id":"5678"},
@@ -170,11 +168,10 @@ var thumbsUp = `{
 				"attachments":[{
 					"type":"image",
 					"payload":{
-						"url":"https://scontent.xx.fbcdn.net/v/arst",
-						"sticker_id":369239263222822
+						"sticker_id": 369239263222822,
+						"url":"https://scontent.xx.fbcdn.net/v/arst"
 					}
-				}],
-				"sticker_id":369239263222822
+				}]
 			}
 		}]
 	}]
@@ -183,7 +180,7 @@ var thumbsUp = `{
 var differentPage = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"message": {
 			  "text": "Hello World",
@@ -204,7 +201,7 @@ var differentPage = `{
 var echo = `{
 	"object":"page",
 	"entry": [{
-		"id": "208685479508187",
+		"id": "1234",
 		"messaging": [{
 			"recipient": {
 				"id": "1234"
@@ -214,7 +211,8 @@ var echo = `{
 			},
 			"timestamp": 1459991487970,
 			"message": {
-				"is_echo": true
+				"is_echo": true,
+				"mid": "qT7ywaK"
 			}
 		}]
 	}]
@@ -223,19 +221,19 @@ var echo = `{
 var optInUserRef = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
-			"optin": {
+		  "optin": {
 		  	"ref": "optin_ref",
 		  	"user_ref": "optin_user_ref"
-			},
-			"recipient": {
+		  },
+		  "recipient": {
 		  	"id": "1234"
-			},
-			"sender": {
+		  },
+		  "sender": {
 		  	"id": "5678"
-			},
-			"timestamp": 1459991487970
+		  },
+		  "timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -244,7 +242,7 @@ var optInUserRef = `{
 var optIn = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"optin": {
 		 		"ref": "optin_ref"
@@ -264,7 +262,7 @@ var optIn = `{
 var postback = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"postback": {
 				"title": "postback title",  
@@ -290,7 +288,7 @@ var postback = `{
 var postbackReferral = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"postback": {
 				"title": "postback title",  
@@ -316,7 +314,7 @@ var postbackReferral = `{
 var postbackGetStarted = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"postback": {
 				"title": "postback title",  
@@ -337,7 +335,7 @@ var postbackGetStarted = `{
 var referral = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"referral": {
 				"ref": "referral id",
@@ -349,7 +347,8 @@ var referral = `{
 			  "id": "1234"
 			},
 			"sender": {
-			  "id": "5678"
+			  "id": "5678",
+			  "user_ref": "5678"
 			},
 			"timestamp": 1459991487970
 	  }],
@@ -360,7 +359,7 @@ var referral = `{
 var dlr = `{
 	"object":"page",
 	"entry": [{
-	  "id": "208685479508187",
+	  "id": "1234",
 	  "messaging": [{
 			"delivery":{
 				"mids":[
@@ -393,13 +392,15 @@ var noEntries = `{
 
 var noMessagingEntries = `{
 	"object":"page",
-	"entry": [{}]
+	"entry": [{
+		"id": "1234"
+	}]
 }`
 
 var unkownMessagingEntry = `{
 	"object":"page",
 	"entry": [{
-		"id": "208685479508187",
+		"id": "1234",
 		"messaging": [{
 			"recipient": {
 				"id": "1234"
@@ -415,51 +416,74 @@ var unkownMessagingEntry = `{
 var notJSON = `blargh`
 
 var testCases = []ChannelHandleTestCase{
-	{Label: "Receive Message", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: helloMsg, Status: 200, Response: "Handled",
-		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
-	{Label: "No Duplicate Receive Message", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: duplicateMsg, Status: 200, Response: "Handled",
-		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
-	{Label: "Receive Attachment", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: attachment, Status: 200, Response: "Handled",
-		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
+	{Label: "Receive Message", URL: "/c/fba/receive", Data: helloMsg, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
 
-	{Label: "Receive Location", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: locationAttachment, Status: 200, Response: "Handled",
-		Text: Sp(""), Attachments: []string{"geo:1.200000,-1.300000"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
+	{Label: "Receive Invalid Signature", URL: "/c/fba/receive", Data: helloMsg, Status: 400, Response: "invalid request signature", PrepRequest: addInvalidSignature},
 
-	{Label: "Receive Thumbs Up", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: thumbsUp, Status: 200, Response: "Handled",
-		Text: Sp("👍"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
+	{Label: "No Duplicate Receive Message", URL: "/c/fba/receive", Data: duplicateMsg, Status: 200, Response: "Handled",
+		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+	{Label: "Receive Attachment", URL: "/c/fba/receive", Data: attachment, Status: 200, Response: "Handled",
+		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
 
-	{Label: "Receive OptIn UserRef", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: optInUserRef, Status: 200, Response: "Handled",
+	{Label: "Receive Location", URL: "/c/fba/receive", Data: locationAttachment, Status: 200, Response: "Handled",
+		Text: Sp(""), Attachments: []string{"geo:1.200000,-1.300000"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+	{Label: "Receive Thumbs Up", URL: "/c/fba/receive", Data: thumbsUp, Status: 200, Response: "Handled",
+		Text: Sp("👍"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive OptIn UserRef", URL: "/c/fba/receive", Data: optInUserRef, Status: 200, Response: "Handled",
 		URN: Sp("facebook:ref:optin_user_ref"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		ChannelEvent: Sp(courier.Referral), ChannelEventExtra: map[string]interface{}{"referrer_id": "optin_ref"}},
-	{Label: "Receive OptIn", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: optIn, Status: 200, Response: "Handled",
+		ChannelEvent: Sp(courier.Referral), ChannelEventExtra: map[string]interface{}{"referrer_id": "optin_ref"},
+		PrepRequest: addValidSignature},
+	{Label: "Receive OptIn", URL: "/c/fba/receive", Data: optIn, Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		ChannelEvent: Sp(courier.Referral), ChannelEventExtra: map[string]interface{}{"referrer_id": "optin_ref"}},
+		ChannelEvent: Sp(courier.Referral), ChannelEventExtra: map[string]interface{}{"referrer_id": "optin_ref"},
+		PrepRequest: addValidSignature},
 
-	{Label: "Receive Get Started", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: postbackGetStarted, Status: 200, Response: "Handled",
+	{Label: "Receive Get Started", URL: "/c/fba/receive", Data: postbackGetStarted, Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.NewConversation),
-		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started"}},
-	{Label: "Receive Referral Postback", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: postback, Status: 200, Response: "Handled",
+		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started"},
+		PrepRequest:       addValidSignature},
+	{Label: "Receive Referral Postback", URL: "/c/fba/receive", Data: postback, Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
-		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "postback payload", "referrer_id": "postback ref", "source": "postback source", "type": "postback type"}},
-	{Label: "Receive Referral", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: postbackReferral, Status: 200, Response: "Handled",
+		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "postback payload", "referrer_id": "postback ref", "source": "postback source", "type": "postback type"},
+		PrepRequest:       addValidSignature},
+	{Label: "Receive Referral", URL: "/c/fba/receive", Data: postbackReferral, Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
-		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started", "referrer_id": "postback ref", "source": "postback source", "type": "postback type"}},
+		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started", "referrer_id": "postback ref", "source": "postback source", "type": "postback type"},
+		PrepRequest:       addValidSignature},
 
-	{Label: "Receive Referral", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: referral, Status: 200, Response: `"referrer_id":"referral id"`,
+	{Label: "Receive Referral", URL: "/c/fba/receive", Data: referral, Status: 200, Response: `"referrer_id":"referral id"`,
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
-		ChannelEventExtra: map[string]interface{}{"referrer_id": "referral id", "source": "referral source", "type": "referral type", "ad_id": "ad id"}},
+		ChannelEventExtra: map[string]interface{}{"referrer_id": "referral id", "source": "referral source", "type": "referral type", "ad_id": "ad id"},
+		PrepRequest:       addValidSignature},
 
-	{Label: "Receive DLR", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: dlr, Status: 200, Response: "Handled",
-		Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), MsgStatus: Sp(courier.MsgDelivered), ExternalID: Sp("mid.1458668856218:ed81099e15d3f4f233")},
+	{Label: "Receive DLR", URL: "/c/fba/receive", Data: dlr, Status: 200, Response: "Handled",
+		Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), MsgStatus: Sp(courier.MsgDelivered), ExternalID: Sp("mid.1458668856218:ed81099e15d3f4f233"),
+		PrepRequest: addValidSignature},
 
-	{Label: "Different Page", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: differentPage, Status: 200, Response: `"data":[]`},
-	{Label: "Echo", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: echo, Status: 200, Response: `ignoring echo`},
-	{Label: "Not Page", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: notPage, Status: 200, Response: "ignoring"},
-	{Label: "No Entries", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: noEntries, Status: 200, Response: "ignoring"},
-	{Label: "No Messaging Entries", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: noMessagingEntries, Status: 200, Response: "Handled"},
-	{Label: "Unknown Messaging Entry", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: unkownMessagingEntry, Status: 200, Response: "Handled"},
-	{Label: "Not JSON", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: notJSON, Status: 400, Response: "Error"},
-	{Label: "Invalid URN", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: invalidURN, Status: 400, Response: "invalid facebook id"},
+	{Label: "Different Page", URL: "/c/fba/receive", Data: differentPage, Status: 200, Response: `"data":[]`, PrepRequest: addValidSignature},
+	{Label: "Echo", URL: "/c/fba/receive", Data: echo, Status: 200, Response: `ignoring echo`, PrepRequest: addValidSignature},
+	{Label: "Not Page", URL: "/c/fba/receive", Data: notPage, Status: 400, Response: "expected 'page', found notpage", PrepRequest: addValidSignature},
+	{Label: "No Entries", URL: "/c/fba/receive", Data: noEntries, Status: 400, Response: "no entries found", PrepRequest: addValidSignature},
+	{Label: "No Messaging Entries", URL: "/c/fba/receive", Data: noMessagingEntries, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
+	{Label: "Unknown Messaging Entry", URL: "/c/fba/receive", Data: unkownMessagingEntry, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
+	{Label: "Not JSON", URL: "/c/fba/receive", Data: notJSON, Status: 400, Response: "Error", PrepRequest: addValidSignature},
+	{Label: "Invalid URN", URL: "/c/fba/receive", Data: invalidURN, Status: 400, Response: "invalid facebook id", PrepRequest: addValidSignature},
+}
+
+func addValidSignature(r *http.Request) {
+	sig, _ := fbCalculateSignature("fb_app_secret", r)
+	r.Header.Set(signatureHeader, fmt.Sprintf("sha1=%s", string(sig)))
+}
+
+func addInvalidSignature(r *http.Request) {
+	r.Header.Set(signatureHeader, "invalidsig")
 }
 
 // mocks the call to the Facebook graph API
@@ -517,41 +541,16 @@ func BenchmarkHandler(b *testing.B) {
 }
 
 func TestVerify(t *testing.T) {
-	subscribeCalled := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		accessToken := r.FormValue("access_token")
-		defer r.Body.Close()
-
-		// invalid auth token
-		if accessToken != "a123" {
-			fmt.Printf("Access token: %s\n", accessToken)
-			http.Error(w, "invalid auth token", 403)
-			return
-		}
-
-		// valid token
-		w.Write([]byte(`{"success": true}`))
-
-		// mark that we were called
-		subscribeCalled = true
-	}))
-	subscribeURL = server.URL
-	subscribeTimeout = time.Millisecond
 
 	RunChannelTestCases(t, testChannels, newHandler(), []ChannelHandleTestCase{
-		{Label: "Receive Message", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: helloMsg, Status: 200},
-		{Label: "Verify No Mode", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Status: 400, Response: "unknown request"},
-		{Label: "Verify No Secret", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive?hub.mode=subscribe", Status: 400, Response: "token does not match secret"},
-		{Label: "Invalid Secret", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive?hub.mode=subscribe&hub.verify_token=blah", Status: 400, Response: "token does not match secret"},
-		{Label: "Valid Secret", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive?hub.mode=subscribe&hub.verify_token=mysecret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
+		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200,
+			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
+		{Label: "Verify No Mode", URL: "/c/fba/receive", Status: 400, Response: "unknown request"},
+		{Label: "Verify No Secret", URL: "/c/fba/receive?hub.mode=subscribe", Status: 400, Response: "token does not match secret"},
+		{Label: "Invalid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=blah", Status: 400, Response: "token does not match secret"},
+		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
 	})
 
-	// wait for our subscribe to be called
-	time.Sleep(100 * time.Millisecond)
-
-	if !subscribeCalled {
-		t.Error("subscribe endpoint should have been called")
-	}
 }
 
 // setSendURL takes care of setting the send_url to our test server host
@@ -621,6 +620,6 @@ var defaultSendTestCases = []ChannelSendTestCase{
 func TestSending(t *testing.T) {
 	// shorter max msg length for testing
 	maxMsgLength = 100
-	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FB", "2020", "US", map[string]interface{}{courier.ConfigAuthToken: "access_token"})
+	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "2020", "US", map[string]interface{}{courier.ConfigAuthToken: "access_token"})
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
 }
