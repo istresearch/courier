@@ -26,6 +26,7 @@ type ChannelHandler interface {
 	UseChannelRouteUUID() bool
 	GetChannel(context.Context, *http.Request) (Channel, error)
 	SendMsg(context.Context, Msg) (MsgStatus, error)
+	PurgeOutgoing(context.Context, Channel) error
 }
 
 // URNDescriber is the interface handlers which can look up URN metadata for new contacts should satisfy.

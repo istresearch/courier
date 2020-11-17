@@ -87,3 +87,7 @@ func (h *BaseHandler) WriteRequestError(ctx context.Context, w http.ResponseWrit
 func (h *BaseHandler) WriteRequestIgnored(ctx context.Context, w http.ResponseWriter, r *http.Request, details string) error {
 	return courier.WriteIgnored(ctx, w, r, details)
 }
+
+func (h *BaseHandler) PurgeOutgoing(ctx context.Context, channel courier.Channel) error {
+	return nil
+}

@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/sirupsen/logrus"
 	"net/http"
+	"strings"
 )
 
 type PurgeHandler struct {
@@ -28,6 +29,16 @@ func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	channelType := ChannelType(strings.ToUpper(chi.URLParam(r, "type")))
+
+	channel, err := p.server.Backend().GetChannel(r.Context(), channelType, uuid)
+
+	if channel == nil || err != nil {
+		logrus.Error("Could not find channel")
+		WriteDataResponse(context.Background(), w, http.StatusBadRequest, "could not find channel", nil)
+		return
+	}
+
 	queues, err := p.server.Backend().GetCurrentQueuesForChannel(context.Background(), uuid)
 
 	if err != nil {
@@ -36,20 +47,23 @@ func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if len(queues) == 0 {
 		logrus.Info("No queues found")
-		WriteDataResponse(context.Background(), w, http.StatusOK, "No outgoing queues found", nil)
-		return
+	} else {
+		purgeQueues, err := p.server.Backend().PrepareQueuesForPurge(context.Background(), queues)
+
+		if err != nil {
+			logrus.Error(err)
+			WriteDataResponse(context.Background(), w, http.StatusInternalServerError,
+				"Error while preparing queues for purge", nil)
+			return
+		}
+
+		go p.PurgeRoutine(purgeQueues)
 	}
 
-	purgeQueues, err := p.server.Backend().PrepareQueuesForPurge(context.Background(), queues)
+	// Even if courier has no queues, always call the channel's purge handler if it is available.
+	ch := GetHandler(channelType)
 
-	if err != nil {
-		logrus.Error(err)
-		WriteDataResponse(context.Background(), w, http.StatusInternalServerError,
-			"Error while preparing queues for purge", nil)
-		return
-	}
-
-	go p.PurgeRoutine(purgeQueues)
+	ch.PurgeOutgoing(r.Context(), channel)
 
 	WriteDataResponse(context.Background(), w, http.StatusOK, "Ok", nil)
 }

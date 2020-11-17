@@ -111,7 +111,7 @@ func (s *server) Start() error {
 	p := NewPurgeHandler(s)
 	p.ResumePurges()
 
-	s.router.Post("/purge/{uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}", p.PurgeChannel)
+	s.router.Post("/purge/{type:[a-zA-Z]+}/{uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}", p.PurgeChannel)
 
 	// initialize our handlers
 	s.initializeChannelHandlers()
