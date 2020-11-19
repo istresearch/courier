@@ -2,6 +2,7 @@ package queue
 
 import (
 	"errors"
+	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -277,7 +278,7 @@ func GetAllChannelQueues(conn redis.Conn, channelID string) ([]string, error) {
 	}
 
 	keys := make([]string, 0)
-	for k,_ := range ret {
+	for k, _ := range ret {
 		keys = append(keys, k)
 	}
 
@@ -354,7 +355,9 @@ func PrepareQueueForPurge(conn redis.Conn, queue string) (string, error) {
 		return "", err
 	}
 
-	newName := "msgs:purge:" + queue
+	rndAppend := strconv.FormatInt(rand.Int63n(9001), 10)
+
+	newName := "msgs:purge:" + queue + "|" + rndAppend
 
 	rename, err := redis.String(conn.Do("RENAME", queue, newName))
 
