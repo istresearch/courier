@@ -64,6 +64,10 @@ func (h *dummyHandler) receiveMsg(ctx context.Context, channel Channel, w http.R
 	return []Event{msg}, nil
 }
 
+func (h *dummyHandler) PurgeOutgoing(ctx context.Context, channel Channel) error {
+	return nil
+}
+
 func testConfig() *Config {
 	config := NewConfig()
 	config.DB = "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable"
