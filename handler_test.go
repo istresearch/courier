@@ -26,8 +26,14 @@ func NewHandler() ChannelHandler {
 	return &dummyHandler{}
 }
 
-func (h *dummyHandler) ChannelName() string      { return "Dummy Handler" }
-func (h *dummyHandler) ChannelType() ChannelType { return ChannelType("DM") }
+func (h *dummyHandler) ChannelName() string       { return "Dummy Handler" }
+func (h *dummyHandler) ChannelType() ChannelType  { return ChannelType("DM") }
+func (h *dummyHandler) UseChannelRouteUUID() bool { return true }
+
+func (h *dummyHandler) GetChannel(ctx context.Context, r *http.Request) (Channel, error) {
+	dmChannel := NewMockChannel("e4bb1578-29da-4fa5-a214-9da19dd24230", "DM", "2020", "US", map[string]interface{}{})
+	return dmChannel, nil
+}
 
 // Initialize is called by the engine once everything is loaded
 func (h *dummyHandler) Initialize(s Server) error {
@@ -56,6 +62,10 @@ func (h *dummyHandler) receiveMsg(ctx context.Context, channel Channel, w http.R
 	w.Write([]byte("ok"))
 	h.backend.WriteMsg(ctx, msg)
 	return []Event{msg}, nil
+}
+
+func (h *dummyHandler) PurgeOutgoing(ctx context.Context, channel Channel) error {
+	return nil
 }
 
 func testConfig() *Config {

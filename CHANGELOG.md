@@ -1,3 +1,69 @@
+v5.6.0
+----------
+ * 5.6.0 Candidate Release
+
+v5.5.28 
+----------
+ * Fix FBA signature validation and channel lookup
+
+v5.5.27
+----------
+ * Add country field and support for more template languages on WhatsApp handler
+
+v5.5.26
+----------
+ * Only log channel events when we have a channel matched
+ * HX channel sends MO using ISO 8859-1 encoding
+
+v5.5.25
+----------
+ * Load FBA channel handler package
+
+v5.5.24
+----------
+ * Support loading channels with null address
+
+v5.5.23
+----------
+ * Add support for FBA channel type
+
+v5.5.22
+----------
+ * User reply endpoint when possible for LINE messages
+
+v5.5.21
+----------
+ * Fix FB location attachment to be handled at geo attachment
+
+v5.5.20
+----------
+ * TS expects national numbers only
+
+v5.5.19
+----------
+ * Upgrade FB graph API to 3.3
+
+v5.5.18
+----------
+ * TS sends should use mobile instead of from
+
+v5.5.17
+----------
+ * Support sending document attachments for Telegram
+
+v5.5.16
+----------
+ * Add option for Telesom Send URL
+ * Ignore received message request in Telegram handler when a file cannot be resolved
+
+v5.5.15
+----------
+ * Support using national number for EX channel if configured so
+
+v5.5.14
+----------
+ * Add Telesom channel type support
+
 v5.5.13
 ----------
  * Use Channel specific max_length config value if set
