@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nyaruka/courier/queue"
+	"github.com/sirupsen/logrus"
 	"log"
 	"strconv"
 	"sync"
@@ -376,19 +378,92 @@ func (mb *MockBackend) PurgeOutgoingQueue(channelID string) error {
 }
 
 func (mb *MockBackend) GetActivePurges(ctx context.Context) ([]string, error) {
-	return nil, nil
+	rc := mb.RedisPool().Get()
+	defer rc.Close()
+
+	return queue.GetActivePurges(rc)
 }
 
 func (mb *MockBackend) GetCurrentQueuesForChannel(ctx context.Context, uuid ChannelUUID) ([]string, error) {
-	return nil, nil
+	rc := mb.RedisPool().Get()
+	defer rc.Close()
+
+	dbQueues, err := queue.GetAllChannelQueues(rc, uuid.String())
+
+	if err != nil {
+		return nil, err
+	}
+
+	queues := make([]string, 0)
+
+	for _, q := range dbQueues {
+		queues = append(queues, q + "/0")
+		queues = append(queues, q + "/1")
+	}
+
+	return queues, nil
 }
 
 func (mb * MockBackend) PrepareQueuesForPurge(ctx context.Context, queues []string) ([]string, error) {
-	return nil, nil
+	newQueues := make([]string, 0)
+	rc := mb.RedisPool().Get()
+	defer rc.Close()
+
+	for _, q := range queues {
+		newQ, err := queue.PrepareQueueForPurge(rc, q)
+
+		if err != nil {
+			return newQueues, err
+		}
+
+		newQueues = append(newQueues, newQ)
+	}
+
+	return newQueues, nil
 }
 
 func (mb *MockBackend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]Msg, error) {
-	return nil, nil
+	type MockPurgeMsg struct {
+		Id MsgID
+		ChannelID ChannelUUID
+	}
+
+	rc := mb.RedisPool().Get()
+	defer rc.Close()
+
+	rawMsgs, _ := queue.PopWithoutChecks(rc, queueKey, count)
+
+	msgs := make([]Msg, 0)
+
+	for m, _ := range rawMsgs {
+		pMsgs := make([]MockPurgeMsg, 0)
+		err := json.Unmarshal([]byte(m), &pMsgs)
+
+		if err != nil {
+			logrus.WithError(err).Error("unable to unmarshal message")
+			continue
+		} else if len(pMsgs) == 0 {
+			logrus.Error("Invalid message data pulled from queue")
+			continue
+		}
+
+		for k, _ := range pMsgs {
+			// populate the channel on our db msg
+			channel, err := mb.GetChannel(ctx, AnyChannelType, pMsgs[k].ChannelID)
+			if err != nil {
+				logrus.WithError(err).Error("unable to get message channel")
+				continue
+			}
+
+			dbMsg := new(mockMsg)
+			dbMsg.channel = channel
+			dbMsg.id = pMsgs[k].Id
+
+			msgs = append(msgs, dbMsg)
+		}
+	}
+
+	return msgs, nil
 }
 
 func buildMockBackend(config *Config) Backend {
