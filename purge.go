@@ -30,7 +30,6 @@ func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	channelType := ChannelType(strings.ToUpper(chi.URLParam(r, "type")))
-
 	channel, err := p.server.Backend().GetChannel(r.Context(), channelType, uuid)
 
 	if channel == nil || err != nil {
