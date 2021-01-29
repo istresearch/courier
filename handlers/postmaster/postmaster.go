@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
@@ -157,10 +158,22 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
+	// Grab contact info from DB
+	contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
+	if  err != nil {
+		return nil, fmt.Errorf("unable to get contact for %s", msg.URN().String())
+	}
+
+	// cast to dbContact so we can access the name
+	dbContact, ok := contact.(*rapidpro.DBContact)
+	if !ok {
+		return nil, fmt.Errorf("invalid contact data returned")
+	}
+
 	parts := handlers.SplitMsg(msg.Text(), maxMsgLength)
 	for _, part := range parts {
 		payload := new(outgoingMessage)
-		payload.Contact.Name = msg.ContactName() //as of writing, this is always blank. :shrug:
+		payload.Contact.Name = string(dbContact.Name_)
 		payload.Contact.Value = msg.URN().Path()
 		payload.Text = part
 		payload.Mode = strings.ToUpper(chatMode)

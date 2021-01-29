@@ -72,6 +72,15 @@ import (
 
 var version = "Dev"
 
+type UTCLogFormatter struct {
+	logrus.Formatter
+}
+
+func (u UTCLogFormatter) Format(e *logrus.Entry) ([]byte, error) {
+	e.Time = e.Time.UTC()
+	return u.Formatter.Format(e)
+}
+
 func main() {
 	config := courier.LoadConfig("courier.toml")
 
@@ -82,6 +91,15 @@ func main() {
 
 	// configure our logger
 	logrus.SetOutput(os.Stdout)
+	logrus.SetFormatter(UTCLogFormatter{&logrus.JSONFormatter{
+		TimestampFormat: "2006-01-02T15:04:05.000Z",
+		FieldMap: logrus.FieldMap{
+			logrus.FieldKeyTime:  "timestamp",
+			logrus.FieldKeyLevel: "level",
+			logrus.FieldKeyMsg:   "message",
+			logrus.FieldKeyFunc:  "caller",
+		},
+	}})
 	level, err := logrus.ParseLevel(config.LogLevel)
 	if err != nil {
 		logrus.Fatalf("Invalid log level '%s'", level)
