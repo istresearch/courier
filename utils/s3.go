@@ -3,13 +3,14 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
-var s3BucketURL = "https://%s.s3.amazonaws.com%s"
+var s3BucketURL = ""
 
 // TestS3 tests whether the passed in s3 client is properly configured and the passed in bucket is accessible
 func TestS3(s3Client s3iface.S3API, bucket string) error {
@@ -25,7 +26,7 @@ func TestS3(s3Client s3iface.S3API, bucket string) error {
 }
 
 // PutS3File writes the passed in file to the bucket with the passed in content type
-func PutS3File(s3Client s3iface.S3API, bucket string, path string, contentType string, contents []byte) (string, error) {
+func PutS3File(s3Client s3iface.S3API, bucketUrl string, bucket string, path string, contentType string, contents []byte) (string, error) {
 	params := &s3.PutObjectInput{
 		Bucket:      aws.String(bucket),
 		Body:        bytes.NewReader(contents),
@@ -38,6 +39,10 @@ func PutS3File(s3Client s3iface.S3API, bucket string, path string, contentType s
 		return "", err
 	}
 
-	url := fmt.Sprintf(s3BucketURL, bucket, path)
+	if !strings.HasPrefix(path, "/") {
+		path = fmt.Sprintf("/%s", path)
+	}
+
+	url := fmt.Sprintf(bucketUrl, bucket) + path
 	return url, nil
 }
