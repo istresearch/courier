@@ -10,8 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
-var s3BucketURL = ""
-
 // TestS3 tests whether the passed in s3 client is properly configured and the passed in bucket is accessible
 func TestS3(s3Client s3iface.S3API, bucket string) error {
 	params := &s3.HeadBucketInput{
