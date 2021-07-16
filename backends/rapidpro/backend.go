@@ -615,6 +615,8 @@ func (b *backend) Start() error {
 	b.db = db
 	b.db.SetMaxIdleConns(4)
 	b.db.SetMaxOpenConns(16)
+	b.db.SetConnMaxIdleTime(time.Minute * 10)
+	b.db.SetConnMaxLifetime(time.Minute * 60)
 
 	// try connecting
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
