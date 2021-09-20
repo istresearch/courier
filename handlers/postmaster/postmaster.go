@@ -29,6 +29,7 @@ const (
 var (
 	maxMsgLength = 20000
 	validate     = validator.New()
+	HEADER_API = "po-api-key"
 )
 
 var statusMapping = map[string]courier.MsgStatusValue{
@@ -196,7 +197,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
 		req.Header.Add("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set(HEADER_API, apiKey)
 
 		rr, err := utils.MakeHTTPRequest(req)
 
@@ -250,7 +251,7 @@ func (h *handler) PurgeOutgoing(ctx context.Context, channel courier.Channel) er
 	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(jsonBody))
 	req.Header.Add("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set(HEADER_API, apiKey)
 
 	rr, err := utils.MakeHTTPRequest(req)
 
