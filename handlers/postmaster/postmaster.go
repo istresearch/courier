@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	outgoingEndpoint = "/postoffice/engage/outgoing"
-	purgeEndpoint = "/postoffice/engage/outgoing/purge"
+	outgoingEndpoint = "engage/outgoing"
+	purgeEndpoint = "engage/outgoing/purge"
 )
 
 var (
@@ -270,6 +270,10 @@ func getPostofficeEndpoint() (string, error) {
 
 	if !exists {
 		return "", fmt.Errorf("Please configure a postoffice endpoint")
+	}
+
+	if !strings.HasSuffix(apiUrl, "/") {
+		apiUrl = apiUrl + "/"
 	}
 
 	return apiUrl, nil
