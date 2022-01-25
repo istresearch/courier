@@ -131,6 +131,7 @@ type moPayload struct {
 					Ref    string `json:"ref"`
 					Source string `json:"source"`
 					Type   string `json:"type"`
+					AdID   string `json:"ad_id"`
 				} `json:"referral"`
 			} `json:"postback"`
 
@@ -311,6 +312,10 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				extra[referrerIDKey] = msg.Postback.Referral.Ref
 				extra[sourceKey] = msg.Postback.Referral.Source
 				extra[typeKey] = msg.Postback.Referral.Type
+
+				if msg.Postback.Referral.AdID != "" {
+					extra[adIDKey] = msg.Postback.Referral.AdID
+				}
 			}
 
 			event = event.WithExtra(extra)
@@ -543,9 +548,13 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			return status, err
 		}
 
-		req, _ := http.NewRequest(http.MethodPost, msgURL.String(), bytes.NewReader(jsonBody))
+		req, err := http.NewRequest(http.MethodPost, msgURL.String(), bytes.NewReader(jsonBody))
+		if err != nil {
+			return nil, err
+		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
+
 		rr, err := utils.MakeHTTPRequest(req)
 
 		// record our status and log

@@ -1,23 +1,23 @@
 package bandwidth_international
 
 import (
-	"strings"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"net/http"
+	"os"
+	"strings"
 
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/base64"
 	"crypto/sha256"
+	"encoding/base64"
 
 	"github.com/nyaruka/courier"
-	"github.com/nyaruka/courier/gsm7"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/gsm7"
 
 	validator "gopkg.in/go-playground/validator.v9"
 )

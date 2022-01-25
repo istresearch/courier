@@ -6,12 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/gofrs/uuid"
 )
 
 // SignHMAC256 encrypts value with HMAC256 by using a private key
@@ -21,16 +20,6 @@ func SignHMAC256(privateKey string, value string) string {
 
 	signedParams := hex.EncodeToString(hash.Sum(nil))
 	return signedParams
-}
-
-// NewUUID generates a new v4 UUID
-func NewUUID() string {
-	u, err := uuid.NewV4()
-	if err != nil {
-		// if we can't generate a UUID.. we're done
-		panic(fmt.Sprintf("unable to generate UUID: %s", err))
-	}
-	return u.String()
 }
 
 // MapAsJSON serializes the given map as a JSON string
@@ -110,4 +99,13 @@ func CleanString(s string) string {
 	}
 
 	return cleaned
+}
+
+// BasePathForURL, parse static URL, and return filename + format
+func BasePathForURL(rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL, err
+	}
+	return path.Base(parsedURL.Path), nil
 }

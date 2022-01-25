@@ -35,3 +35,4 @@ dist/
 .envrc
 courier
 .idea
+_storage
