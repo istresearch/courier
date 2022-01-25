@@ -12,7 +12,6 @@ type Config struct {
 	DB                        string `help:"URL describing how to connect to the RapidPro database"`
 	Redis                     string `help:"URL describing how to connect to Redis"`
 	SpoolDir                  string `help:"the local directory where courier will write statuses or msgs that need to be retried (needs to be writable)"`
-	S3BucketUrlFormat         string `help:"the url to the s3 bucket we will write attachments to, with one string placeholder for the bucket name"`
 	S3Endpoint                string `help:"the S3 endpoint we will write attachments to"`
 	S3Region                  string `help:"the S3 region we will write attachments to"`
 	S3MediaBucket             string `help:"the S3 bucket we will write attachments to"`
@@ -48,15 +47,14 @@ func NewConfig() *Config {
 		DB:                        "postgres://temba:temba@localhost/temba?sslmode=disable",
 		Redis:                     "redis://localhost:6379/15",
 		SpoolDir:                  "/var/spool/courier",
-		S3BucketUrlFormat:         "https://%s.s3.amazonaws.com",
 		S3Endpoint:                "https://s3.amazonaws.com",
 		S3Region:                  "us-east-1",
 		S3MediaBucket:             "courier-media",
 		S3MediaPrefix:             "/media/",
 		S3DisableSSL:              false,
 		S3ForcePathStyle:          false,
-		AWSAccessKeyID:            "missing_aws_access_key_id",
-		AWSSecretAccessKey:        "missing_aws_secret_access_key",
+		AWSAccessKeyID:            "",
+		AWSSecretAccessKey:        "",
 		FacebookApplicationSecret: "missing_facebook_app_secret",
 		FacebookWebhookSecret:     "missing_facebook_webhook_secret",
 		MaxWorkers:                32,

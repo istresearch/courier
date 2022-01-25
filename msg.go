@@ -97,6 +97,7 @@ type Msg interface {
 	Metadata() json.RawMessage
 	ResponseToID() MsgID
 	ResponseToExternalID() string
+	IsResend() bool
 
 	Channel() Channel
 
@@ -115,4 +116,5 @@ type Msg interface {
 	WithMetadata(metadata json.RawMessage) Msg
 
 	EventID() int64
+	SessionStatus() string
 }

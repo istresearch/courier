@@ -12,18 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/garyburd/redigo/redis"
+	"github.com/gomodule/redigo/redis"
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
 	"github.com/nyaruka/courier/chatbase"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
@@ -81,7 +78,7 @@ func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contac
 	}
 	dbChannel := c.(*DBChannel)
 	dbContact := contact.(*DBContact)
-	_, err = contactURNForURN(tx, dbChannel.OrgID(), dbChannel.ID(), dbContact.ID_, urn, "")
+	_, err = contactURNForURN(tx, dbChannel, dbContact.ID_, urn, "")
 	if err != nil {
 		return urns.NilURN, err
 	}
@@ -186,13 +183,29 @@ var luaSent = redis.NewScript(3,
 `)
 
 // WasMsgSent returns whether the passed in message has already been sent
-func (b *backend) WasMsgSent(ctx context.Context, msg courier.Msg) (bool, error) {
+func (b *backend) WasMsgSent(ctx context.Context, id courier.MsgID) (bool, error) {
 	rc := b.redisPool.Get()
 	defer rc.Close()
 
 	todayKey := fmt.Sprintf(sentSetName, time.Now().UTC().Format("2006_01_02"))
 	yesterdayKey := fmt.Sprintf(sentSetName, time.Now().Add(time.Hour*-24).UTC().Format("2006_01_02"))
-	return redis.Bool(luaSent.Do(rc, todayKey, yesterdayKey, msg.ID().String()))
+	return redis.Bool(luaSent.Do(rc, todayKey, yesterdayKey, id.String()))
+}
+
+var luaClearSent = redis.NewScript(3,
+	`-- KEYS: [TodayKey, YesterdayKey, MsgID]
+	 redis.call("srem", KEYS[1], KEYS[3])
+     redis.call("srem", KEYS[2], KEYS[3])
+`)
+
+func (b *backend) ClearMsgSent(ctx context.Context, id courier.MsgID) error {
+	rc := b.redisPool.Get()
+	defer rc.Close()
+
+	todayKey := fmt.Sprintf(sentSetName, time.Now().UTC().Format("2006_01_02"))
+	yesterdayKey := fmt.Sprintf(sentSetName, time.Now().Add(time.Hour*-24).UTC().Format("2006_01_02"))
+	_, err := luaClearSent.Do(rc, todayKey, yesterdayKey, id.String())
+	return err
 }
 
 var luaMsgLoop = redis.NewScript(3, `-- KEYS: [key, contact_id, text]
@@ -333,16 +346,7 @@ func (b *backend) WriteMsgStatus(ctx context.Context, status courier.MsgStatus) 
 
 	// if we have an id and are marking an outgoing msg as errored, then clear our sent flag
 	if status.ID() != courier.NilMsgID && status.Status() == courier.MsgErrored {
-		rc := b.redisPool.Get()
-		defer rc.Close()
-
-		dateKey := fmt.Sprintf(sentSetName, time.Now().UTC().Format("2006_01_02"))
-		prevDateKey := fmt.Sprintf(sentSetName, time.Now().Add(time.Hour*-24).UTC().Format("2006_01_02"))
-
-		// we pipeline the removals because we don't care about the return value
-		rc.Send("srem", dateKey, status.ID().String())
-		rc.Send("srem", prevDateKey, status.ID().String())
-		_, err := rc.Do("")
+		err := b.ClearMsgSent(ctx, status.ID())
 		if err != nil {
 			logrus.WithError(err).WithField("msg", status.ID().String()).Error("error clearing sent flags")
 		}
@@ -679,25 +683,30 @@ func (b *backend) Start() error {
 		queue.StartDethrottler(redisPool, b.stopChan, b.waitGroup, msgQueueName)
 	}
 
-	// create our s3 client
-	s3Session, err := session.NewSession(&aws.Config{
-		Credentials:      credentials.NewStaticCredentials(b.config.AWSAccessKeyID, b.config.AWSSecretAccessKey, ""),
-		Endpoint:         aws.String(b.config.S3Endpoint),
-		Region:           aws.String(b.config.S3Region),
-		DisableSSL:       aws.Bool(b.config.S3DisableSSL),
-		S3ForcePathStyle: aws.Bool(b.config.S3ForcePathStyle),
-	})
-	if err != nil {
-		return err
-	}
-	b.s3Client = s3.New(s3Session)
-
-	// test out our S3 credentials
-	err = utils.TestS3(b.s3Client, b.config.S3MediaBucket)
-	if err != nil {
-		log.WithError(err).Error("s3 bucket not reachable")
+	// create our storage (S3 or file system)
+	if b.config.AWSAccessKeyID != "" {
+		s3Client, err := storage.NewS3Client(&storage.S3Options{
+			AWSAccessKeyID:     b.config.AWSAccessKeyID,
+			AWSSecretAccessKey: b.config.AWSSecretAccessKey,
+			Endpoint:           b.config.S3Endpoint,
+			Region:             b.config.S3Region,
+			DisableSSL:         b.config.S3DisableSSL,
+			ForcePathStyle:     b.config.S3ForcePathStyle,
+		})
+		if err != nil {
+			return err
+		}
+		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket)
 	} else {
-		log.Info("s3 bucket ok")
+		b.storage = storage.NewFS("_storage")
+	}
+
+	// test our storage
+	err = b.storage.Test()
+	if err != nil {
+		log.WithError(err).Error(b.storage.Name() + " storage not available")
+	} else {
+		log.Info(b.storage.Name() + " storage ok")
 	}
 
 	// make sure our spool dirs are writable
@@ -883,7 +892,7 @@ type backend struct {
 
 	db        *sqlx.DB
 	redisPool *redis.Pool
-	s3Client  s3iface.S3API
+	storage   storage.Storage
 	awsCreds  *credentials.Credentials
 
 	popScript *redis.Script
