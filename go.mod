@@ -19,14 +19,13 @@ require (
 	github.com/kylelemons/godebug v0.0.0-20170820004349-d65d576e9348 // indirect
 	github.com/lib/pq v1.10.4
 	github.com/nyaruka/ezconf v0.2.1
-	github.com/nyaruka/gocommon v1.17.1
+	github.com/nyaruka/gocommon v1.16.2
 	github.com/nyaruka/librato v1.0.0
 	github.com/nyaruka/null v1.1.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.7.0
-	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2 // indirect
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1
 	gopkg.in/go-playground/validator.v9 v9.31.0
