@@ -313,7 +313,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	}
 
 	//s3URL, err := utils.PutS3File(b.s3Client, b.config.S3BucketUrlFormat, b.config.S3MediaBucket, path, mimeType, body)
-	s3URL, err := b.storage.Put(path, mimeType, body)
+	s3URL, err := b.storage.Put(ctx, path, mimeType, body)
 	if err != nil {
 		return "", err
 	}
