@@ -696,13 +696,13 @@ func (b *backend) Start() error {
 		if err != nil {
 			return err
 		}
-		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket)
+		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket, b.config.S3Region, 1)
 	} else {
 		b.storage = storage.NewFS("_storage")
 	}
 
 	// test our storage
-	err = b.storage.Test()
+	err = b.storage.Test(ctx)
 	if err != nil {
 		log.WithError(err).Error(b.storage.Name() + " storage not available")
 	} else {
@@ -805,8 +805,8 @@ func (b *backend) GetCurrentQueuesForChannel(ctx context.Context, uuid courier.C
 	queues := make([]string, 0)
 
 	for _, q := range dbQueues {
-		queues = append(queues, q + "/0")
-		queues = append(queues, q + "/1")
+		queues = append(queues, q+"/0")
+		queues = append(queues, q+"/1")
 	}
 
 	return queues, nil
@@ -830,7 +830,7 @@ func (b *backend) PrepareQueuesForPurge(ctx context.Context, queues []string) ([
 	return newQueues, nil
 }
 
-func (b *backend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]courier.Msg, error) {
+func (b *backend) PopMsgs(ctx context.Context, queueKey string, count int) ([]courier.Msg, error) {
 	rc := b.RedisPool().Get()
 	defer rc.Close()
 
