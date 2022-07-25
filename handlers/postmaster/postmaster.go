@@ -23,19 +23,19 @@ import (
 
 const (
 	outgoingEndpoint = "engage/outgoing"
-	purgeEndpoint = "engage/outgoing/purge"
+	purgeEndpoint    = "engage/outgoing/purge"
 )
 
 var (
 	maxMsgLength = 20000
 	validate     = validator.New()
-	HEADER_API = "po-api-key"
+	HEADER_API   = "po-api-key"
 )
 
 var statusMapping = map[string]courier.MsgStatusValue{
-	"S":      courier.MsgSent,
-	"E":      courier.MsgErrored,
-	"D":        courier.MsgDelivered,
+	"S": courier.MsgSent,
+	"E": courier.MsgErrored,
+	"D": courier.MsgDelivered,
 	"F": courier.MsgFailed,
 }
 
@@ -87,8 +87,8 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	if mode == "SMS" {
 		// Remove out + and - just in case
 		value := payload.Contact.Value
-		value = strings.Replace(value, " ","",-1)
-		value = strings.Replace(value, "-","",-1)
+		value = strings.Replace(value, " ", "", -1)
+		value = strings.Replace(value, "-", "", -1)
 
 		// Only add + if it is a full phone, not a shortcode
 		if len(value) > 8 {
@@ -133,9 +133,8 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 	return handlers.WriteMsgStatusAndResponse(ctx, h, channel, status, w, r)
 }
 
-
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	apiUrl,err := getPostofficeEndpoint()
+	apiUrl, err := getPostofficeEndpoint()
 
 	if err != nil {
 		return nil, err
@@ -161,7 +160,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	// Grab contact info from DB
 	contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
-	if  err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("unable to get contact for %s", msg.URN().String())
 	}
 
@@ -180,7 +179,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		payload.Mode = strings.ToUpper(chatMode)
 		payload.ChannelID = msg.Channel().UUID().String()
 		payload.DeviceID = deviceId
-		payload.ID = fmt.Sprintf("%d",msg.ID())
+		payload.ID = fmt.Sprintf("%d", msg.ID())
 
 		for _, attachment := range msg.Attachments() {
 			_, mediaURL := handlers.SplitAttachment(attachment)
@@ -205,7 +204,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 		status.AddLog(log)
 		if err != nil {
-			return status, nil
+			logrus.WithField("req.url", req.URL).
+				WithField("status", rr.Status).
+				WithError(err).Error("PO req fail")
+			return status, err
 		}
 	}
 
@@ -230,7 +232,7 @@ func (h *handler) PurgeOutgoing(ctx context.Context, channel courier.Channel) er
 		Mode:     chatMode,
 	}
 
-	apiUrl,err := getPostofficeEndpoint()
+	apiUrl, err := getPostofficeEndpoint()
 
 	if err != nil {
 		return err
@@ -260,7 +262,7 @@ func (h *handler) PurgeOutgoing(ctx context.Context, channel courier.Channel) er
 		return err
 	}
 
-	logrus.WithField("response",string(rr.Body)).Info("Purge response from postoffice")
+	logrus.WithField("response", string(rr.Body)).Info("Purge response from postoffice")
 
 	return nil
 }
@@ -307,11 +309,11 @@ Content-Type: application/json; charset=utf-8
 */
 
 type incomingMessage struct {
-	Time      ISO8601WithMilli    `json:"time" validate:"required"`
-	Text      string `json:"text"`
+	Time    ISO8601WithMilli `json:"time" validate:"required"`
+	Text    string           `json:"text"`
 	Contact struct {
-		Name string `json:"name"`
-		Value  string `json:"value" validate:"required"`
+		Name  string `json:"name"`
+		Value string `json:"value" validate:"required"`
 	} `json:"contact" validate:"required"`
 	Mode      string `json:"mode" validate:"required"`
 	ChannelID string `json:"channel_id" validate:"required"`
@@ -334,10 +336,10 @@ type incomingMessage struct {
 }
 */
 type outgoingMessage struct {
-	Text      string `json:"text" validate:"required"`
+	Text    string `json:"text" validate:"required"`
 	Contact struct {
-		Name string `json:"name"`
-		Value  string `json:"value" validate:"required"`
+		Name  string `json:"name"`
+		Value string `json:"value" validate:"required"`
 	} `json:"contact" validate:"required"`
 	Mode      string `json:"mode" validate:"required"`
 	DeviceID  string `json:"device_id" validate:"required"`
@@ -353,10 +355,10 @@ type outgoingMessage struct {
 	"message_id": "1234",
 	"status": "S"
 }
- */
+*/
 type messageStatus struct {
 	MessageID string `json:"message_id" validate:"required"`
-	Status string `json:"status" validate:"required"`
+	Status    string `json:"status" validate:"required"`
 }
 
 /*
@@ -364,8 +366,8 @@ type messageStatus struct {
 	"device_id": "123",
 	"mode": "SMS"
 }
- */
+*/
 type purgeRequest struct {
 	DeviceID string `json:"device_id" validate:"required"`
-	Mode string `json:"mode" validate:"required"`
+	Mode     string `json:"mode" validate:"required"`
 }
