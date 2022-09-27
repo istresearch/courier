@@ -45,10 +45,18 @@ func init() {
 
 type handler struct {
 	handlers.BaseHandler
+
+	logger *logrus.Entry
 }
 
 func newHandler() courier.ChannelHandler {
-	return &handler{handlers.NewBaseHandler(courier.ChannelType("PSM"), "Postmaster")}
+	return &handler{
+		BaseHandler: handlers.NewBaseHandler(courier.ChannelType("PSM"), "Postmaster"),
+		logger: logrus.WithFields(logrus.Fields{
+			"handler_type": courier.ChannelType("PSM"),
+			"handler_name": "Postmaster",
+		}),
+	}
 }
 
 // Initialize is called by the engine once everything is loaded
@@ -61,6 +69,13 @@ func (h *handler) Initialize(s courier.Server) error {
 
 // receiveMessage is our HTTP handler function for incoming messages
 func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	h.logger.WithFields(logrus.Fields{
+		"channel_uuid": channel.UUID(),
+		"channel_name": channel.Name(),
+		"channel_type": channel.ChannelType(),
+		"pm_imei":      channel.Address(),
+		"scheme":       strings.Join(channel.Schemes(), ", "),
+	}).Info("receiveMsg")
 	payload := &incomingMessage{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
