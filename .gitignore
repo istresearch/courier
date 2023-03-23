@@ -3,6 +3,7 @@
 *.a
 *.so
 *~
+deploy
 fabric
 fabfile.py
 fabfile.pyc
@@ -34,7 +35,6 @@ _testmain.go
 dist/
 .envrc
 courier
-.idea
 _storage
-
 _*
+.idea

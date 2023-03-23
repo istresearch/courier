@@ -12,14 +12,17 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
-	"github.com/nyaruka/gocommon/rcache"
+	"github.com/nyaruka/gocommon/httpx"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/redisx"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -33,6 +36,8 @@ const (
 	channelTypeTXW = "TXW"
 
 	mediaCacheKeyPattern = "whatsapp_media_%s"
+
+	interactiveMsgMinSupVersion = "v2.35.2"
 )
 
 var (
@@ -124,6 +129,18 @@ type eventPayload struct {
 			Sha256   string `json:"sha256"    validate:"required"`
 			Caption  string `json:"caption"`
 		} `json:"image"`
+		Interactive *struct {
+			ButtonReply *struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"button_reply"`
+			ListReply *struct {
+				ID          string `json:"id"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+			} `json:"list_reply"`
+			Type string `json:"type"`
+		}
 		Location *struct {
 			Address   string  `json:"address"   validate:"required"`
 			Latitude  float32 `json:"latitude"  validate:"required"`
@@ -203,6 +220,12 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		} else if msg.Type == "image" && msg.Image != nil {
 			text = msg.Image.Caption
 			mediaURL, err = resolveMediaURL(channel, msg.Image.ID)
+		} else if msg.Type == "interactive" {
+			if msg.Interactive.Type == "button_reply" {
+				text = msg.Interactive.ButtonReply.Title
+			} else {
+				text = msg.Interactive.ListReply.Title
+			}
 		} else if msg.Type == "location" && msg.Location != nil {
 			mediaURL = fmt.Sprintf("geo:%f,%f", msg.Location.Latitude, msg.Location.Longitude)
 		} else if msg.Type == "video" && msg.Video != nil {
@@ -335,11 +358,57 @@ var waIgnoreStatuses = map[string]bool{
 // }
 
 type mtTextPayload struct {
-	To   string `json:"to"    validate:"required"`
-	Type string `json:"type"  validate:"required"`
-	Text struct {
+	To         string `json:"to"    validate:"required"`
+	Type       string `json:"type"  validate:"required"`
+	PreviewURL bool   `json:"preview_url,omitempty"`
+	Text       struct {
 		Body string `json:"body" validate:"required"`
 	} `json:"text"`
+}
+
+type mtInteractivePayload struct {
+	To          string `json:"to" validate:"required"`
+	Type        string `json:"type" validate:"required"`
+	Interactive struct {
+		Type   string `json:"type" validate:"required"` //"text" | "image" | "video" | "document"
+		Header *struct {
+			Type     string `json:"type"`
+			Text     string `json:"text,omitempty"`
+			Video    string `json:"video,omitempty"`
+			Image    string `json:"image,omitempty"`
+			Document string `json:"document,omitempty"`
+		} `json:"header,omitempty"`
+		Body struct {
+			Text string `json:"text"`
+		} `json:"body" validate:"required"`
+		Footer *struct {
+			Text string `json:"text"`
+		} `json:"footer,omitempty"`
+		Action struct {
+			Button   string      `json:"button,omitempty"`
+			Sections []mtSection `json:"sections,omitempty"`
+			Buttons  []mtButton  `json:"buttons,omitempty"`
+		} `json:"action" validate:"required"`
+	} `json:"interactive"`
+}
+
+type mtSection struct {
+	Title string         `json:"title,omitempty"`
+	Rows  []mtSectionRow `json:"rows" validate:"required"`
+}
+
+type mtSectionRow struct {
+	ID          string `json:"id" validate:"required"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type mtButton struct {
+	Type  string `json:"type" validate:"required"`
+	Reply struct {
+		ID    string `json:"id" validate:"required"`
+		Title string `json:"title" validate:"required"`
+	} `json:"reply" validate:"required"`
 }
 
 type mediaObject struct {
@@ -410,8 +479,8 @@ type mtImagePayload struct {
 }
 
 type mtVideoPayload struct {
-	To    string       `json:"to" validate: "required"`
-	Type  string       `json:"type" validate: "required"`
+	To    string       `json:"to" validate:"required"`
+	Type  string       `json:"type" validate:"required"`
 	Video *mediaObject `json:"video"`
 }
 
@@ -429,6 +498,9 @@ const maxMsgLength = 4096
 // SendMsg sends the passed in message, returning any error
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	start := time.Now()
+	conn := h.Backend().RedisPool().Get()
+	defer conn.Close()
+
 	// get our token
 	token := msg.Channel().StringConfigForKey(courier.ConfigAuthToken, "")
 	if token == "" {
@@ -447,107 +519,228 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	var wppID string
 	var logs []*courier.ChannelLog
 
+	payloads, logs, err := buildPayloads(msg, h)
+
+	fail := payloads == nil && err != nil
+	if fail {
+		return nil, err
+	}
+	for _, log := range logs {
+		status.AddLog(log)
+	}
+
+	for i, payload := range payloads {
+		externalID := ""
+		wppID, externalID, logs, err = sendWhatsAppMsg(conn, msg, sendPath, payload)
+		// add logs to our status
+		for _, log := range logs {
+			status.AddLog(log)
+		}
+		if err != nil {
+			break
+		}
+
+		// if this is our first message, record the external id
+		if i == 0 {
+			status.SetExternalID(externalID)
+		}
+	}
+
+	// we are wired it there were no errors
+	if err == nil {
+		// so update contact URN if wppID != ""
+		if wppID != "" {
+			newURN, _ := urns.NewWhatsAppURN(wppID)
+			err = status.SetUpdatedURN(msg.URN(), newURN)
+
+			if err != nil {
+				elapsed := time.Since(start)
+				log := courier.NewChannelLogFromError("unable to update contact URN", msg.Channel(), msg.ID(), elapsed, err)
+				status.AddLog(log)
+			}
+		}
+		status.SetStatus(courier.MsgWired)
+	}
+
+	return status, nil
+}
+
+func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.ChannelLog, error) {
+	start := time.Now()
+	var payloads []interface{}
+	var logs []*courier.ChannelLog
+	var err error
+
+	parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+
+	qrs := msg.QuickReplies()
+	wppVersion := msg.Channel().ConfigForKey("version", "0").(string)
+	isInteractiveMsgCompatible := semver.Compare(wppVersion, interactiveMsgMinSupVersion)
+	isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0)
+
+	textAsCaption := false
+
 	if len(msg.Attachments()) > 0 {
 		for attachmentCount, attachment := range msg.Attachments() {
 
 			mimeType, mediaURL := handlers.SplitAttachment(attachment)
 			mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
+			if len(mediaLogs) > 0 {
+				logs = append(logs, mediaLogs...)
+			}
 			if err != nil {
 				logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
 			}
+			fileURL := mediaURL
 			if err == nil && mediaID != "" {
 				mediaURL = ""
 			}
 			mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
-			externalID := ""
 			if strings.HasPrefix(mimeType, "audio") {
 				payload := mtAudioPayload{
 					To:   msg.URN().Path(),
 					Type: "audio",
 				}
 				payload.Audio = mediaPayload
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+				payloads = append(payloads, payload)
 			} else if strings.HasPrefix(mimeType, "application") {
 				payload := mtDocumentPayload{
 					To:   msg.URN().Path(),
 					Type: "document",
 				}
-				if attachmentCount == 0 {
+				if attachmentCount == 0 && !isInteractiveMsg {
 					mediaPayload.Caption = msg.Text()
+					textAsCaption = true
 				}
-				mediaPayload.Filename, err = utils.BasePathForURL(mediaURL)
+				mediaPayload.Filename, err = utils.BasePathForURL(fileURL)
 
 				// Logging error
 				if err != nil {
 					logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
 				}
 				payload.Document = mediaPayload
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+				payloads = append(payloads, payload)
 			} else if strings.HasPrefix(mimeType, "image") {
 				payload := mtImagePayload{
 					To:   msg.URN().Path(),
 					Type: "image",
 				}
-				if attachmentCount == 0 {
+				if attachmentCount == 0 && !isInteractiveMsg {
 					mediaPayload.Caption = msg.Text()
+					textAsCaption = true
 				}
 				payload.Image = mediaPayload
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+				payloads = append(payloads, payload)
 			} else if strings.HasPrefix(mimeType, "video") {
 				payload := mtVideoPayload{
 					To:   msg.URN().Path(),
 					Type: "video",
 				}
-				if attachmentCount == 0 {
+				if attachmentCount == 0 && !isInteractiveMsg {
 					mediaPayload.Caption = msg.Text()
+					textAsCaption = true
 				}
 				payload.Video = mediaPayload
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+				payloads = append(payloads, payload)
 			} else {
 				duration := time.Since(start)
 				err = fmt.Errorf("unknown attachment mime type: %s", mimeType)
-				logs = []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
-			}
-
-			// add media logs to our status
-			for _, log := range mediaLogs {
-				status.AddLog(log)
-			}
-
-			// add logs to our status
-			for _, log := range logs {
-				status.AddLog(log)
-			}
-
-			// break out on errors
-			if err != nil {
+				attachmentLogs := []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
+				logs = append(logs, attachmentLogs...)
 				break
 			}
+		}
 
-			// set our external id if we have one
-			if attachmentCount == 0 {
-				status.SetExternalID(externalID)
+		if !textAsCaption && !isInteractiveMsg {
+			for _, part := range parts {
+
+				//check if you have a link
+				var payload mtTextPayload
+				if strings.Contains(part, "https://") || strings.Contains(part, "http://") {
+					payload = mtTextPayload{
+						To:         msg.URN().Path(),
+						Type:       "text",
+						PreviewURL: true,
+					}
+				} else {
+					payload = mtTextPayload{
+						To:   msg.URN().Path(),
+						Type: "text",
+					}
+				}
+				payload.Text.Body = part
+				payloads = append(payloads, payload)
+			}
+		}
+
+		if isInteractiveMsg {
+			for i, part := range parts {
+				if i < (len(parts) - 1) { //if split into more than one message, the first parts will be text and the last interactive
+					payload := mtTextPayload{
+						To:   msg.URN().Path(),
+						Type: "text",
+					}
+					payload.Text.Body = part
+					payloads = append(payloads, payload)
+
+				} else {
+					payload := mtInteractivePayload{
+						To:   msg.URN().Path(),
+						Type: "interactive",
+					}
+
+					// up to 3 qrs the interactive message will be button type, otherwise it will be list
+					if len(qrs) <= 3 {
+						payload.Interactive.Type = "button"
+						payload.Interactive.Body.Text = part
+						btns := make([]mtButton, len(qrs))
+						for i, qr := range qrs {
+							btns[i] = mtButton{
+								Type: "reply",
+							}
+							btns[i].Reply.ID = fmt.Sprint(i)
+							btns[i].Reply.Title = qr
+						}
+						payload.Interactive.Action.Buttons = btns
+						payloads = append(payloads, payload)
+					} else {
+						payload.Interactive.Type = "list"
+						payload.Interactive.Body.Text = part
+						payload.Interactive.Action.Button = "Menu"
+						section := mtSection{
+							Rows: make([]mtSectionRow, len(qrs)),
+						}
+						for i, qr := range qrs {
+							section.Rows[i] = mtSectionRow{
+								ID:    fmt.Sprint(i),
+								Title: qr,
+							}
+						}
+						payload.Interactive.Action.Sections = []mtSection{
+							section,
+						}
+						payloads = append(payloads, payload)
+					}
+				}
 			}
 		}
 
 	} else {
 		// do we have a template?
 		var templating *MsgTemplating
-		templating, err = h.getTemplate(msg)
+		templating, err := h.getTemplate(msg)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
+			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 		}
-
 		if templating != nil {
 			namespace := templating.Namespace
 			if namespace == "" {
 				namespace = msg.Channel().StringConfigForKey(configNamespace, "")
 			}
 			if namespace == "" {
-				return nil, errors.Errorf("cannot send template message without Facebook namespace for channel: %s", msg.Channel().UUID())
+				return nil, nil, errors.Errorf("cannot send template message without Facebook namespace for channel: %s", msg.Channel().UUID())
 			}
 
-			externalID := ""
 			if msg.Channel().BoolConfigForKey(configHSMSupport, false) {
 				payload := hsmPayload{
 					To:   msg.URN().Path(),
@@ -560,7 +753,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				for _, v := range templating.Variables {
 					payload.HSM.LocalizableParams = append(payload.HSM.LocalizableParams, LocalizableParam{Default: v})
 				}
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+				payloads = append(payloads, payload)
 			} else {
 
 				payload := templatePayload{
@@ -579,60 +772,84 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				}
 				payload.Template.Components = append(payload.Template.Components, *component)
 
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
-			}
-
-			// add logs to our status
-			for _, log := range logs {
-				status.AddLog(log)
-			}
-
-			if err == nil {
-				status.SetExternalID(externalID)
+				payloads = append(payloads, payload)
 			}
 		} else {
-			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
-			externalID := ""
-			for i, part := range parts {
-				payload := mtTextPayload{
-					To:   msg.URN().Path(),
-					Type: "text",
-				}
-				payload.Text.Body = part
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
 
-				// add logs to our status
-				for _, log := range logs {
-					status.AddLog(log)
-				}
-				if err != nil {
-					break
-				}
+			if isInteractiveMsg {
+				for i, part := range parts {
+					if i < (len(parts) - 1) { //if split into more than one message, the first parts will be text and the last interactive
+						payload := mtTextPayload{
+							To:   msg.URN().Path(),
+							Type: "text",
+						}
+						payload.Text.Body = part
+						payloads = append(payloads, payload)
 
-				// if this is our first message, record the external id
-				if i == 0 {
-					status.SetExternalID(externalID)
+					} else {
+						payload := mtInteractivePayload{
+							To:   msg.URN().Path(),
+							Type: "interactive",
+						}
+
+						// up to 3 qrs the interactive message will be button type, otherwise it will be list
+						if len(qrs) <= 3 {
+							payload.Interactive.Type = "button"
+							payload.Interactive.Body.Text = part
+							btns := make([]mtButton, len(qrs))
+							for i, qr := range qrs {
+								btns[i] = mtButton{
+									Type: "reply",
+								}
+								btns[i].Reply.ID = fmt.Sprint(i)
+								btns[i].Reply.Title = qr
+							}
+							payload.Interactive.Action.Buttons = btns
+							payloads = append(payloads, payload)
+						} else {
+							payload.Interactive.Type = "list"
+							payload.Interactive.Body.Text = part
+							payload.Interactive.Action.Button = "Menu"
+							section := mtSection{
+								Rows: make([]mtSectionRow, len(qrs)),
+							}
+							for i, qr := range qrs {
+								section.Rows[i] = mtSectionRow{
+									ID:    fmt.Sprint(i),
+									Title: qr,
+								}
+							}
+							payload.Interactive.Action.Sections = []mtSection{
+								section,
+							}
+							payloads = append(payloads, payload)
+						}
+					}
+				}
+			} else {
+				for _, part := range parts {
+
+					//check if you have a link
+					var payload mtTextPayload
+					if strings.Contains(part, "https://") || strings.Contains(part, "http://") {
+						payload = mtTextPayload{
+							To:         msg.URN().Path(),
+							Type:       "text",
+							PreviewURL: true,
+						}
+					} else {
+						payload = mtTextPayload{
+							To:   msg.URN().Path(),
+							Type: "text",
+						}
+					}
+					payload.Text.Body = part
+					payloads = append(payloads, payload)
 				}
 			}
 		}
 	}
-
-	// we are wired it there were no errors
-	if err == nil {
-		if wppID != "" {
-			newURN, _ := urns.NewWhatsAppURN(wppID)
-			err = status.SetUpdatedURN(msg.URN(), newURN)
-
-			if err != nil {
-				elapsed := time.Now().Sub(start)
-				log := courier.NewChannelLogFromError("unable to update contact URN", msg.Channel(), msg.ID(), elapsed, err)
-				status.AddLog(log)
-			}
-		}
-		status.SetStatus(courier.MsgWired)
-	}
-
-	return status, nil
+	return payloads, logs, err
 }
 
 // fetchMediaID tries to fetch the id for the uploaded media, setting the result in redis.
@@ -644,7 +861,8 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPattern, msg.Channel().UUID().String())
-	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	mediaCache := redisx.NewIntervalHash(cacheKey, time.Hour*24, 2)
+	mediaID, err := mediaCache.Get(rc, mediaURL)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
 	} else if mediaID != "" {
@@ -686,7 +904,7 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 		return "", logs, errors.Wrapf(err, "error building request to media endpoint")
 	}
 	setWhatsAppAuthHeader(&req.Header, msg.Channel())
-	req.Header.Add("Content-Type", http.DetectContentType(rr.Body))
+	req.Header.Add("Content-Type", httpx.DetectContentType(rr.Body))
 	rr, err = utils.MakeHTTPRequest(req)
 	log = courier.NewChannelLogFromRR("Uploading media to WhatsApp", msg.Channel(), msg.ID(), rr).WithError("Error uploading media to WhatsApp", err)
 	logs = append(logs, log)
@@ -702,7 +920,7 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	}
 
 	// put in cache
-	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	err = mediaCache.Set(rc, mediaURL, mediaID)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error setting media id in cache")
 	}
@@ -710,7 +928,7 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	return mediaID, logs, nil
 }
 
-func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, payload interface{}) (string, string, []*courier.ChannelLog, error) {
+func sendWhatsAppMsg(rc redis.Conn, msg courier.Msg, sendPath *url.URL, payload interface{}) (string, string, []*courier.ChannelLog, error) {
 	start := time.Now()
 	jsonBody, err := json.Marshal(payload)
 
@@ -722,12 +940,38 @@ func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, payload interface{}) (s
 	req, _ := http.NewRequest(http.MethodPost, sendPath.String(), bytes.NewReader(jsonBody))
 	req.Header = buildWhatsAppHeaders(msg.Channel())
 	rr, err := utils.MakeHTTPRequest(req)
+
+	if rr.StatusCode == 429 || rr.StatusCode == 503 {
+		rateLimitKey := fmt.Sprintf("rate_limit:%s", msg.Channel().UUID().String())
+		rc.Do("SET", rateLimitKey, "engaged")
+
+		// The rate limit is 50 requests per second
+		// We pause sending 2 seconds so the limit count is reset
+		// TODO: In the future we should the header value when available
+		rc.Do("EXPIRE", rateLimitKey, 2)
+
+		log := courier.NewChannelLogFromRR("rate limit engaged", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		return "", "", []*courier.ChannelLog{log}, err
+	}
+
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	errPayload := &mtErrorPayload{}
 	err = json.Unmarshal(rr.Body, errPayload)
 
 	// handle send msg errors
 	if err == nil && len(errPayload.Errors) > 0 {
+		if hasTiersError(*errPayload) {
+			rateLimitBulkKey := fmt.Sprintf("rate_limit_bulk:%s", msg.Channel().UUID().String())
+			rc.Do("SET", rateLimitBulkKey, "engaged")
+
+			// The WA tiers spam rate limit hit
+			// We pause the bulk queue for 24 hours and 5min
+			rc.Do("EXPIRE", rateLimitBulkKey, (60*60*24)+(5*60))
+
+			err := errors.Errorf("received error from send endpoint: %s", errPayload.Errors[0].Title)
+			return "", "", []*courier.ChannelLog{log}, err
+		}
+
 		if !hasWhatsAppContactError(*errPayload) {
 			err := errors.Errorf("received error from send endpoint: %s", errPayload.Errors[0].Title)
 			return "", "", []*courier.ChannelLog{log}, err
@@ -809,7 +1053,14 @@ func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, payload interface{}) (s
 		return wppID, externalID, []*courier.ChannelLog{log, checkLog, retryLog}, err
 	}
 	externalID, err := getSendWhatsAppMsgId(rr)
-	return "", externalID, []*courier.ChannelLog{log}, err
+	if err != nil {
+		return "", "", []*courier.ChannelLog{log}, err
+	}
+	wppID, err := jsonparser.GetString(rr.Body, "contacts", "[0]", "wa_id")
+	if wppID != "" && wppID != msg.URN().Path() {
+		return wppID, externalID, []*courier.ChannelLog{log}, err
+	}
+	return "", externalID, []*courier.ChannelLog{log}, nil
 }
 
 func setWhatsAppAuthHeader(header *http.Header, channel courier.Channel) {
@@ -832,9 +1083,18 @@ func buildWhatsAppHeaders(channel courier.Channel) http.Header {
 	return header
 }
 
+func hasTiersError(payload mtErrorPayload) bool {
+	for _, err := range payload.Errors {
+		if err.Code == 471 {
+			return true
+		}
+	}
+	return false
+}
+
 func hasWhatsAppContactError(payload mtErrorPayload) bool {
 	for _, err := range payload.Errors {
-		if err.Code == 1006 && err.Title == "Resource not found" && err.Details == "unknown contact" {
+		if err.Code == 1006 && err.Title == "Resource not found" && (err.Details == "unknown contact" || err.Details == "Could not retrieve phone number from contact store") {
 			return true
 		}
 	}
@@ -960,9 +1220,10 @@ var languageMap = map[string]string{
 	"fil":    "fil",   // Filipino
 	"fin":    "fi",    // Finnish
 	"fra":    "fr",    // French
+	"kat":    "ka",    // Georgian
 	"deu":    "de",    // German
 	"ell":    "el",    // Greek
-	"gul":    "gu",    // Gujarati
+	"guj":    "gu",    // Gujarati
 	"hau":    "ha",    // Hausa
 	"enb":    "he",    // Hebrew
 	"hin":    "hi",    // Hindi
@@ -973,7 +1234,9 @@ var languageMap = map[string]string{
 	"jpn":    "ja",    // Japanese
 	"kan":    "kn",    // Kannada
 	"kaz":    "kk",    // Kazakh
+	"kin":    "rw_RW", // Kinyarwanda
 	"kor":    "ko",    // Korean
+	"kir":    "ky_KG", // Kyrgyzstan
 	"lao":    "lo",    // Lao
 	"lav":    "lv",    // Latvian
 	"lit":    "lt",    // Lithuanian
