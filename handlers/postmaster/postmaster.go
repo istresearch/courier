@@ -45,24 +45,35 @@ func init() {
 
 type handler struct {
 	handlers.BaseHandler
-
-	logger *logrus.Entry
+	logger      *logrus.Entry
+	pingHandler *handler
 }
 
 func newHandler() courier.ChannelHandler {
-	return &handler{
-		BaseHandler: handlers.NewBaseHandler(courier.ChannelType("PSM"), "Postmaster"),
+	chanType := courier.ChannelType("PSM")
+	chanName := "Postmaster"
+	pingHdlr := &handler{
+		BaseHandler: handlers.NewBaseHandlerWithParams(chanType, chanName, false),
 		logger: logrus.WithFields(logrus.Fields{
-			"handler_type": courier.ChannelType("PSM"),
-			"handler_name": "Postmaster",
+			"handler_type": chanType,
+			"handler_name": chanName,
 		}),
+	}
+	return &handler{
+		BaseHandler: handlers.NewBaseHandler(chanType, chanName),
+		logger: logrus.WithFields(logrus.Fields{
+			"handler_type": chanType,
+			"handler_name": chanName,
+		}),
+		pingHandler: pingHdlr,
 	}
 }
 
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodGet, "", h.ping)
+	h.pingHandler.SetServer(s)
+	s.AddHandlerRoute(h.pingHandler, http.MethodGet, "", h.ping)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
 	s.AddHandlerRoute(h, http.MethodPost, "status", h.receiveStatus)
 	return nil
