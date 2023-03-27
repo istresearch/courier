@@ -62,9 +62,15 @@ func newHandler() courier.ChannelHandler {
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
+	s.AddHandlerRoute(h, http.MethodGet, "", h.ping)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
 	s.AddHandlerRoute(h, http.MethodPost, "status", h.receiveStatus)
 	return nil
+}
+
+func (h *handler) ping(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	w.WriteHeader(http.StatusNoContent)
+	return []courier.Event{}, nil
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
