@@ -49,7 +49,7 @@ jobs:
               },
               "image": {
                 "dockerfile": "Dockerfile",
-                "arch_allowed": "amd64 arm64",
+                "arch_allowed": "amd64",
                 "name": "${{ github.repository }}",
                 "version": "${{ needs.build_cfg.outputs.VERSION_STR }}",
                 "build_args": [

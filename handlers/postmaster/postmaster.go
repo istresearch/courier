@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/go-chi/chi"
 	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/sirupsen/logrus"
 	"net/http"
@@ -82,6 +83,18 @@ func (h *handler) Initialize(s courier.Server) error {
 func (h *handler) ping(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	w.WriteHeader(http.StatusNoContent)
 	return []courier.Event{}, nil
+}
+
+func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Channel, error) {
+	if h.UseChannelRouteUUID() {
+		uuid, err := courier.NewChannelUUID(chi.URLParam(r, "uuid"))
+		if err != nil {
+			return nil, err
+		}
+		return h.Backend().GetChannel(ctx, h.ChannelType(), uuid)
+	} else {
+		return nil, nil
+	}
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
