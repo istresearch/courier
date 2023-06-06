@@ -36,5 +36,6 @@ dist/
 .envrc
 courier
 _storage
-_*
+_*/
+.v*/
 .idea
