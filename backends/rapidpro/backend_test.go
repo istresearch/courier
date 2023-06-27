@@ -17,6 +17,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/queue"
+	"github.com/nyaruka/gocommon/dbutil/assertdb"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/null"
@@ -108,6 +109,7 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 		"contact_id": 30,
 		"contact_urn_id": 14,
 		"error_count": 0,
+		"flow": {"uuid": "9de3663f-c5c5-4c92-9f45-ecbc09abcc85", "name": "Favorites"},
 		"modified_on": "2017-07-21T19:22:23.254133Z",
 		"id": 204,
 		"channel_uuid": "f3ad3eb6-d00d-4dc3-92e9-9f34f32940ba",
@@ -120,7 +122,6 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 		"sent_on": null,
 		"high_priority": true,
 		"channel_id": 11,
-		"response_to_id": 15,
 		"response_to_external_id": "external-id",
 		"external_id": null,
 		"is_resend": true,
@@ -137,10 +138,13 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.Equal(msg.ExternalID(), "")
 	ts.Equal([]string{"Yes", "No"}, msg.QuickReplies())
 	ts.Equal("event", msg.Topic())
-	ts.Equal(courier.NewMsgID(15), msg.ResponseToID())
 	ts.Equal("external-id", msg.ResponseToExternalID())
 	ts.True(msg.HighPriority())
 	ts.True(msg.IsResend())
+	flow_ref := courier.FlowReference{UUID: "9de3663f-c5c5-4c92-9f45-ecbc09abcc85", Name: "Favorites"}
+	ts.Equal(msg.Flow(), &flow_ref)
+	ts.Equal("Favorites", msg.FlowName())
+	ts.Equal("9de3663f-c5c5-4c92-9f45-ecbc09abcc85", msg.FlowUUID())
 
 	msgJSONNoQR := `{
 		"status": "P",
@@ -162,8 +166,7 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 		"sent_on": null,
 		"high_priority": true,
 		"channel_id": 11,
-		"response_to_id": null,
-		"response_to_external_id": "",
+		"response_to_external_id": null,
 		"external_id": null,
 		"metadata": null
 	}`
@@ -173,9 +176,11 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.NoError(err)
 	ts.Equal([]string{}, msg.QuickReplies())
 	ts.Equal("", msg.Topic())
-	ts.Equal(courier.NilMsgID, msg.ResponseToID())
 	ts.Equal("", msg.ResponseToExternalID())
 	ts.False(msg.IsResend())
+	ts.Nil(msg.Flow())
+	ts.Equal("", msg.FlowName())
+	ts.Equal("", msg.FlowUUID())
 }
 
 func (ts *BackendTestSuite) TestCheckMsgExists() {
@@ -205,6 +210,35 @@ func (ts *BackendTestSuite) TestCheckMsgExists() {
 	status := ts.b.NewMsgStatusForExternalID(knChannel, "ext1", courier.MsgStatusValue("S"))
 	err = checkMsgExists(ts.b, status)
 	ts.Nil(err)
+}
+
+func (ts *BackendTestSuite) TestDeleteMsgWithExternalID() {
+	knChannel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	ctx := context.Background()
+
+	// no error for invalid external ID
+	err := ts.b.DeleteMsgWithExternalID(ctx, knChannel, "ext-invalid")
+	ts.Nil(err)
+
+	// cannot change out going messages
+	err = ts.b.DeleteMsgWithExternalID(ctx, knChannel, "ext1")
+	ts.Nil(err)
+
+	m := readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	ts.Equal(m.Text_, "test message")
+	ts.Equal(len(m.Attachments()), 0)
+	ts.Equal(m.Visibility_, MsgVisibility("V"))
+
+	// for incoming messages mark them deleted by sender and readact their text and clear their attachments
+	err = ts.b.DeleteMsgWithExternalID(ctx, knChannel, "ext2")
+	ts.Nil(err)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10002))
+	ts.Equal(m.Text_, "")
+	ts.Equal(len(m.Attachments()), 0)
+	ts.Equal(m.Visibility_, MsgVisibility("X"))
+
 }
 
 func (ts *BackendTestSuite) TestContact() {
@@ -470,56 +504,95 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	now := time.Now().In(time.UTC)
 	time.Sleep(2 * time.Millisecond)
 
-	// update by id with external id
+	// put test message back into queued state
+	ts.b.db.MustExec(`UPDATE msgs_msg SET status = 'Q', sent_on = NULL WHERE id = $1`, 10001)
+
+	// update to WIRED using id and provide new external ID
 	status := ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgWired)
 	status.SetExternalID("ext0")
 	err := ts.b.WriteMsgStatus(ctx, status)
 	ts.NoError(err)
 	time.Sleep(time.Second)
 
-	m, err := readMsgFromDB(ts.b, courier.NewMsgID(10001))
-	ts.NoError(err)
-	ts.Equal(m.Status_, courier.MsgWired)
-	ts.Equal(m.ExternalID_, null.String("ext0"))
+	m := readMsgFromDB(ts.b, courier.NewMsgID(10001))
+	ts.Equal(courier.MsgWired, m.Status_)
+	ts.Equal(null.String("ext0"), m.ExternalID_)
 	ts.True(m.ModifiedOn_.After(now))
 	ts.True(m.SentOn_.After(now))
+	ts.Equal(null.NullString, m.FailedReason_)
 
-	// update by id, no external id, shouldn't overwrite it
+	sentOn := *m.SentOn_
+
+	// update to SENT using id
 	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgSent)
 	err = ts.b.WriteMsgStatus(ctx, status)
 	ts.NoError(err)
 	time.Sleep(time.Second)
 
-	// no change for incoming messages
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10002))
-	ts.NoError(err)
-	ts.Equal(m.Status_, courier.MsgPending)
-	ts.Equal(m.ExternalID_, null.String("ext2"))
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10001))
+	ts.Equal(courier.MsgSent, m.Status_)
+	ts.Equal(null.String("ext0"), m.ExternalID_) // no change
+	ts.True(m.ModifiedOn_.After(now))
+	ts.True(m.SentOn_.Equal(sentOn)) // no change
 
+	// update to DELIVERED using id
+	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgDelivered)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
+	time.Sleep(time.Second)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10001))
+	ts.Equal(m.Status_, courier.MsgDelivered)
+	ts.True(m.ModifiedOn_.After(now))
+	ts.True(m.SentOn_.Equal(sentOn)) // no change
+
+	// no change for incoming messages
 	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10002), courier.MsgSent)
 	err = ts.b.WriteMsgStatus(ctx, status)
 	ts.NoError(err)
 	time.Sleep(time.Second)
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10002))
-	ts.NoError(err)
-	ts.Equal(m.Status_, courier.MsgPending)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10002))
+	ts.Equal(courier.MsgPending, m.Status_)
 	ts.Equal(m.ExternalID_, null.String("ext2"))
 
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10001))
-	ts.NoError(err)
-	ts.Equal(m.Status_, courier.MsgSent)
-	ts.Equal(m.ExternalID_, null.String("ext0"))
-	ts.True(m.ModifiedOn_.After(now))
-
-	// update by external id
+	// update to FAILED using external id
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgFailed)
 	err = ts.b.WriteMsgStatus(ctx, status)
 	ts.NoError(err)
 	time.Sleep(time.Second)
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10000))
-	ts.NoError(err)
-	ts.Equal(m.Status_, courier.MsgFailed)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	ts.Equal(courier.MsgFailed, m.Status_)
 	ts.True(m.ModifiedOn_.After(now))
+	ts.Nil(m.SentOn_)
+
+	now = time.Now().In(time.UTC)
+	time.Sleep(2 * time.Millisecond)
+
+	// update to WIRED using external id
+	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgWired)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
+	time.Sleep(time.Second)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	ts.Equal(courier.MsgWired, m.Status_)
+	ts.True(m.ModifiedOn_.After(now))
+	ts.True(m.SentOn_.After(now))
+
+	sentOn = *m.SentOn_
+
+	// update to SENT using external id
+	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgSent)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
+	time.Sleep(time.Second)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	ts.Equal(courier.MsgSent, m.Status_)
+	ts.True(m.ModifiedOn_.After(now))
+	ts.True(m.SentOn_.Equal(sentOn)) // no change
 
 	// no such external id for outgoing message
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext2", courier.MsgSent)
@@ -534,6 +607,7 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	// reset our status to sent
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgSent)
 	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
 	time.Sleep(time.Second)
 
 	// error our msg
@@ -544,12 +618,12 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(err)
 	time.Sleep(time.Second)
 
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10000))
-	ts.NoError(err)
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	ts.Equal(m.Status_, courier.MsgErrored)
 	ts.Equal(m.ErrorCount_, 1)
 	ts.True(m.ModifiedOn_.After(now))
 	ts.True(m.NextAttempt_.After(now))
+	ts.Equal(null.NullString, m.FailedReason_)
 
 	// second go
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgErrored)
@@ -557,10 +631,10 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(err)
 	time.Sleep(time.Second)
 
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10000))
-	ts.NoError(err)
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	ts.Equal(m.Status_, courier.MsgErrored)
 	ts.Equal(m.ErrorCount_, 2)
+	ts.Equal(null.NullString, m.FailedReason_)
 
 	// third go
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgErrored)
@@ -568,10 +642,10 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	time.Sleep(time.Second)
 
 	ts.NoError(err)
-	m, err = readMsgFromDB(ts.b, courier.NewMsgID(10000))
-	ts.NoError(err)
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	ts.Equal(m.Status_, courier.MsgFailed)
 	ts.Equal(m.ErrorCount_, 3)
+	ts.Equal(null.String("E"), m.FailedReason_)
 
 	// update URN when the new doesn't exist
 	tx, _ := ts.b.db.BeginTxx(ctx, nil)
@@ -643,6 +717,11 @@ func (ts *BackendTestSuite) TestHealth() {
 	ts.Equal(ts.b.Health(), "")
 }
 
+func (ts *BackendTestSuite) TestHeartbeat() {
+	// TODO make analytics abstraction layer so we can test what we report
+	ts.NoError(ts.b.Heartbeat())
+}
+
 func (ts *BackendTestSuite) TestDupes() {
 	r := ts.b.redisPool.Get()
 	defer r.Close()
@@ -674,7 +753,7 @@ func (ts *BackendTestSuite) TestDupes() {
 	uuid2 := msg.UUID().String()
 
 	// an outgoing message should clear things
-	dbMsg, err := readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	dbMsg := readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	dbMsg.URN_ = urn
 	dbMsg.channel = knChannel
 	dbMsg.ChannelUUID_ = knChannel.UUID()
@@ -716,37 +795,6 @@ func (ts *BackendTestSuite) TestExternalIDDupes() {
 	ts.True(m2.alreadyWritten)
 }
 
-func (ts *BackendTestSuite) TestLoop() {
-	ctx := context.Background()
-	dbMsg, err := readMsgFromDB(ts.b, courier.NewMsgID(10000))
-	ts.NoError(err)
-
-	dbMsg.ResponseToID_ = courier.MsgID(5)
-
-	loop, err := ts.b.IsMsgLoop(ctx, dbMsg)
-	ts.NoError(err)
-	ts.False(loop)
-
-	// call it 18 times more, no loop still
-	for i := 0; i < 18; i++ {
-		loop, err = ts.b.IsMsgLoop(ctx, dbMsg)
-		ts.NoError(err)
-		ts.False(loop)
-	}
-
-	// last one should make us a loop
-	loop, err = ts.b.IsMsgLoop(ctx, dbMsg)
-	ts.NoError(err)
-	ts.True(loop)
-
-	// make sure this keeps working even in hundreds of loops
-	for i := 0; i < 100; i++ {
-		loop, err = ts.b.IsMsgLoop(ctx, dbMsg)
-		ts.NoError(err)
-		ts.True(loop)
-	}
-}
-
 func (ts *BackendTestSuite) TestStatus() {
 	// our health should just contain the header
 	ts.True(strings.Contains(ts.b.Status(), "Channel"), ts.b.Status())
@@ -755,9 +803,8 @@ func (ts *BackendTestSuite) TestStatus() {
 	r := ts.b.redisPool.Get()
 	defer r.Close()
 
-	dbMsg, err := readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	dbMsg := readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	dbMsg.ChannelUUID_, _ = courier.NewChannelUUID("dbc126ed-66bc-4e28-b67b-81dc3327c95d")
-	ts.NoError(err)
 	ts.NotNil(dbMsg)
 
 	// serialize our message
@@ -777,9 +824,8 @@ func (ts *BackendTestSuite) TestOutgoingQueue() {
 	r := ts.b.redisPool.Get()
 	defer r.Close()
 
-	dbMsg, err := readMsgFromDB(ts.b, courier.NewMsgID(10000))
+	dbMsg := readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	dbMsg.ChannelUUID_, _ = courier.NewChannelUUID("dbc126ed-66bc-4e28-b67b-81dc3327c95d")
-	ts.NoError(err)
 	ts.NotNil(dbMsg)
 
 	// serialize our message
@@ -814,8 +860,7 @@ func (ts *BackendTestSuite) TestOutgoingQueue() {
 	ts.Nil(err)
 
 	// checking another message should show unsent
-	msg3, err := readMsgFromDB(ts.b, courier.NewMsgID(10001))
-	ts.NoError(err)
+	msg3 := readMsgFromDB(ts.b, courier.NewMsgID(10001))
 	sent, err = ts.b.WasMsgSent(ctx, msg3.ID())
 	ts.NoError(err)
 	ts.False(sent)
@@ -975,8 +1020,8 @@ func (ts *BackendTestSuite) TestWriteAttachment() {
 	}
 
 	// load it back from the id
-	m, err := readMsgFromDB(ts.b, msg.ID())
-	ts.NoError(err)
+	m := readMsgFromDB(ts.b, msg.ID())
+
 	if ts.Equal(1, len(m.Attachments())) {
 		ts.True(strings.HasPrefix(m.Attachments()[0], "image/png:"))
 		ts.True(strings.HasSuffix(m.Attachments()[0], ".png"))
@@ -1008,8 +1053,7 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 	ts.NotZero(msg.ID)
 
 	// load it back from the id
-	m, err := readMsgFromDB(ts.b, msg.ID())
-	ts.NoError(err)
+	m := readMsgFromDB(ts.b, msg.ID())
 
 	tx, err := ts.b.db.Beginx()
 	ts.NoError(err)
@@ -1124,8 +1168,7 @@ func (ts *BackendTestSuite) TestPreferredChannelCheckRole() {
 	time.Sleep(1 * time.Second)
 
 	// load it back from the id
-	m, err := readMsgFromDB(ts.b, msg.ID())
-	ts.NoError(err)
+	m := readMsgFromDB(ts.b, msg.ID())
 
 	tx, err := ts.b.db.Beginx()
 	ts.NoError(err)
@@ -1172,9 +1215,7 @@ func (ts *BackendTestSuite) TestSessionTimeout() {
 	ts.NoError(err)
 
 	// make sure that took
-	count := 0
-	ts.b.db.Get(&count, "SELECT count(*) from flows_flowsession WHERE timeout_on > NOW()")
-	ts.Equal(1, count)
+	assertdb.Query(ts.T(), ts.b.db, `SELECT count(*) from flows_flowsession WHERE timeout_on > NOW()`).Returns(1)
 }
 
 func (ts *BackendTestSuite) TestMailroomEvents() {
@@ -1265,4 +1306,26 @@ func TestBackendSuite(t *testing.T) {
 
 type ServerTestSuite struct {
 	suite.Suite
+}
+
+// for testing only, returned DBMsg object is not fully populated
+func readMsgFromDB(b *backend, id courier.MsgID) *DBMsg {
+	m := &DBMsg{
+		ID_: id,
+	}
+	err := b.db.Get(m, selectMsgSQL, id)
+	if err != nil {
+		panic(err)
+	}
+
+	ch := &DBChannel{
+		ID_: m.ChannelID_,
+	}
+	err = b.db.Get(ch, selectChannelSQL, m.ChannelID_)
+	if err != nil {
+		panic(err)
+	}
+
+	m.channel = ch
+	return m
 }

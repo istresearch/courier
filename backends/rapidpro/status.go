@@ -107,6 +107,14 @@ UPDATE msgs_msg SET
 		ELSE 
 			next_attempt 
 		END,
+	failed_reason = CASE
+		WHEN
+			error_count >= 2
+		THEN
+			'E'
+		ELSE
+			failed_reason
+	    END,
 	sent_on = CASE 
 		WHEN 
 			:status = 'W' 
@@ -164,13 +172,21 @@ UPDATE msgs_msg SET
 		ELSE 
 			next_attempt 
 		END,
+	failed_reason = CASE
+		WHEN
+			error_count >= 2
+		THEN
+			'E'
+		ELSE
+			failed_reason
+	    END,
 	sent_on = CASE 
 		WHEN 
-			:status = 'W' 
+			:status IN ('W', 'S', 'D')
 		THEN 
-			NOW() 
+			COALESCE(sent_on, NOW())
 		ELSE 
-			sent_on 
+			NULL 
 		END,
 	modified_on = :modified_on
 WHERE 
@@ -265,11 +281,11 @@ UPDATE msgs_msg SET
 		END,
 	sent_on = CASE 
 		WHEN 
-			s.status = 'W' 
+			s.status IN ('W', 'S', 'D')
 		THEN 
-			NOW() 
+			COALESCE(sent_on, NOW())
 		ELSE 
-			sent_on 
+			NULL
 		END,
 	external_id = CASE
 		WHEN 
@@ -288,8 +304,6 @@ WHERE
 	msgs_msg.id = s.msg_id::bigint AND
 	msgs_msg.channel_id = s.channel_id::int AND 
 	msgs_msg.direction = 'O'
-RETURNING 
-	msgs_msg.id
 `
 
 //-----------------------------------------------------------------------------

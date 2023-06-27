@@ -481,7 +481,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	payload := mtPayload{}
 
 	// set our message type
-	if msg.ResponseToID() != courier.NilMsgID {
+	if msg.ResponseToExternalID() != "" {
 		payload.MessagingType = "RESPONSE"
 	} else if topic != "" {
 		payload.MessagingType = "MESSAGE_TAG"
@@ -517,6 +517,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			payload.Message.Attachment = &mtAttachment{}
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			attType = strings.Split(attType, "/")[0]
+			if attType == "application" {
+				attType = "file"
+			}
 			payload.Message.Attachment.Type = attType
 			payload.Message.Attachment.Payload.URL = attURL
 			payload.Message.Attachment.Payload.IsReusable = true
