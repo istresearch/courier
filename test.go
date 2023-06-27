@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nyaruka/courier/queue"
-	"github.com/sirupsen/logrus"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gomodule/redigo/redis"
 	_ "github.com/lib/pq" // postgres driver
@@ -115,19 +116,19 @@ func (mb *MockBackend) GetLastContactName() string {
 	return mb.lastContactName
 }
 
+// DeleteMsgWithExternalID delete a message we receive an event that it should be deleted
+func (mb *MockBackend) DeleteMsgWithExternalID(ctx context.Context, channel Channel, externalID string) error {
+	return nil
+}
+
 // NewIncomingMsg creates a new message from the given params
 func (mb *MockBackend) NewIncomingMsg(channel Channel, urn urns.URN, text string) Msg {
 	return &mockMsg{channel: channel, urn: urn, text: text}
 }
 
 // NewOutgoingMsg creates a new outgoing message from the given params
-func (mb *MockBackend) NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToID int64, responseToExternalID string) Msg {
-	msgResponseToID := NilMsgID
-	if responseToID != 0 {
-		msgResponseToID = NewMsgID(responseToID)
-	}
-
-	return &mockMsg{channel: channel, id: id, urn: urn, text: text, highPriority: highPriority, quickReplies: quickReplies, topic: topic, responseToID: msgResponseToID, responseToExternalID: responseToExternalID}
+func (mb *MockBackend) NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToExternalID string) Msg {
+	return &mockMsg{channel: channel, id: id, urn: urn, text: text, highPriority: highPriority, quickReplies: quickReplies, topic: topic, responseToExternalID: responseToExternalID}
 }
 
 // PushOutgoingMsg is a test method to add a message to our queue of messages to send
@@ -166,11 +167,6 @@ func (mb *MockBackend) ClearMsgSent(ctx context.Context, id MsgID) error {
 
 	delete(mb.sentMsgs, id)
 	return nil
-}
-
-// IsMsgLoop returns whether the passed in msg is a loop
-func (mb *MockBackend) IsMsgLoop(ctx context.Context, msg Msg) (bool, error) {
-	return false, nil
 }
 
 // MarkOutgoingMsgComplete marks the passed msg as having been dealt with
@@ -271,7 +267,6 @@ func (mb *MockBackend) GetChannel(ctx context.Context, cType ChannelType, uuid C
 	}
 	return channel, nil
 }
-
 
 // GetChannelByAddress returns the channel with the passed in type and channel address
 func (mb *MockBackend) GetChannelByAddress(ctx context.Context, cType ChannelType, address ChannelAddress) (Channel, error) {
@@ -406,14 +401,14 @@ func (mb *MockBackend) GetCurrentQueuesForChannel(ctx context.Context, uuid Chan
 	queues := make([]string, 0)
 
 	for _, q := range dbQueues {
-		queues = append(queues, q + "/0")
-		queues = append(queues, q + "/1")
+		queues = append(queues, q+"/0")
+		queues = append(queues, q+"/1")
 	}
 
 	return queues, nil
 }
 
-func (mb * MockBackend) PrepareQueuesForPurge(ctx context.Context, queues []string) ([]string, error) {
+func (mb *MockBackend) PrepareQueuesForPurge(ctx context.Context, queues []string) ([]string, error) {
 	newQueues := make([]string, 0)
 	rc := mb.RedisPool().Get()
 	defer rc.Close()
@@ -431,9 +426,9 @@ func (mb * MockBackend) PrepareQueuesForPurge(ctx context.Context, queues []stri
 	return newQueues, nil
 }
 
-func (mb *MockBackend)  PopMsgs(ctx context.Context, queueKey string, count int) ([]Msg, error) {
+func (mb *MockBackend) PopMsgs(ctx context.Context, queueKey string, count int) ([]Msg, error) {
 	type MockPurgeMsg struct {
-		Id MsgID
+		Id        MsgID
 		ChannelID ChannelUUID
 	}
 
@@ -664,11 +659,12 @@ type mockMsg struct {
 	highPriority         bool
 	quickReplies         []string
 	topic                string
-	responseToID         MsgID
 	responseToExternalID string
 	metadata             json.RawMessage
 	alreadyWritten       bool
 	isResend             bool
+
+	flow *FlowReference
 
 	receivedOn *time.Time
 	sentOn     *time.Time
@@ -676,6 +672,22 @@ type mockMsg struct {
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
+
+func (m *mockMsg) Flow() *FlowReference { return m.flow }
+
+func (m *mockMsg) FlowName() string {
+	if m.flow == nil {
+		return ""
+	}
+	return m.flow.Name
+}
+
+func (m *mockMsg) FlowUUID() string {
+	if m.flow == nil {
+		return ""
+	}
+	return m.flow.UUID
+}
 
 func (m *mockMsg) Channel() Channel             { return m.channel }
 func (m *mockMsg) ID() MsgID                    { return m.id }
@@ -690,7 +702,6 @@ func (m *mockMsg) ContactName() string          { return m.contactName }
 func (m *mockMsg) HighPriority() bool           { return m.highPriority }
 func (m *mockMsg) QuickReplies() []string       { return m.quickReplies }
 func (m *mockMsg) Topic() string                { return m.topic }
-func (m *mockMsg) ResponseToID() MsgID          { return m.responseToID }
 func (m *mockMsg) ResponseToExternalID() string { return m.responseToExternalID }
 func (m *mockMsg) Metadata() json.RawMessage    { return m.metadata }
 func (m *mockMsg) IsResend() bool               { return m.isResend }
@@ -710,6 +721,8 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
+
+func (m *mockMsg) WithFlow(flow *FlowReference) Msg { m.flow = flow; return m }
 
 //-----------------------------------------------------------------------------
 // Mock status implementation
@@ -809,3 +822,11 @@ type mockContact struct {
 }
 
 func (c *mockContact) UUID() ContactUUID { return c.uuid }
+
+func ReadFile(path string) []byte {
+	d, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}

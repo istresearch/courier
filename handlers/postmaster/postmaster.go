@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/go-chi/chi"
 	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/sirupsen/logrus"
 	"net/http"
@@ -45,22 +46,66 @@ func init() {
 
 type handler struct {
 	handlers.BaseHandler
+	logger      *logrus.Entry
+	pingHandler *handler
 }
 
 func newHandler() courier.ChannelHandler {
-	return &handler{handlers.NewBaseHandler(courier.ChannelType("PSM"), "Postmaster")}
+	chanType := courier.ChannelType("PSM")
+	chanName := "Postmaster"
+	pingHdlr := &handler{
+		BaseHandler: handlers.NewBaseHandlerWithParams(chanType, chanName, false),
+		logger: logrus.WithFields(logrus.Fields{
+			"handler_type": chanType,
+			"handler_name": chanName,
+		}),
+	}
+	return &handler{
+		BaseHandler: handlers.NewBaseHandler(chanType, chanName),
+		logger: logrus.WithFields(logrus.Fields{
+			"handler_type": chanType,
+			"handler_name": chanName,
+		}),
+		pingHandler: pingHdlr,
+	}
 }
 
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
+	h.pingHandler.SetServer(s)
+	s.AddHandlerRoute(h.pingHandler, http.MethodGet, "", h.ping)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
 	s.AddHandlerRoute(h, http.MethodPost, "status", h.receiveStatus)
 	return nil
 }
 
+func (h *handler) ping(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	w.WriteHeader(http.StatusNoContent)
+	return []courier.Event{}, nil
+}
+
+func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Channel, error) {
+	if h.UseChannelRouteUUID() {
+		uuid, err := courier.NewChannelUUID(chi.URLParam(r, "uuid"))
+		if err != nil {
+			return nil, err
+		}
+		return h.Backend().GetChannel(ctx, h.ChannelType(), uuid)
+	} else {
+		return nil, nil
+	}
+}
+
 // receiveMessage is our HTTP handler function for incoming messages
 func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	h.logger.WithFields(logrus.Fields{
+		"channel_uuid": channel.UUID(),
+		"channel_name": channel.Name(),
+		"channel_type": channel.ChannelType(),
+		"pm_imei":      channel.Address(),
+		"scheme":       strings.Join(channel.Schemes(), ", "),
+	}).Info("receiveMsg")
 	payload := &incomingMessage{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
