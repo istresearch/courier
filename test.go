@@ -177,6 +177,10 @@ func (mb *MockBackend) MarkOutgoingMsgComplete(ctx context.Context, msg Msg, s M
 	mb.sentMsgs[msg.ID()] = true
 }
 
+func (mb *MockBackend) SetFlowSessionTimeoutByMsgId(ctx context.Context, id MsgID) error {
+	return nil
+}
+
 // WriteChannelLogs writes the passed in channel logs to the DB
 func (mb *MockBackend) WriteChannelLogs(ctx context.Context, logs []*ChannelLog) error {
 	mb.mutex.Lock()
