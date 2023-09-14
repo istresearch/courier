@@ -94,6 +94,9 @@ type Backend interface {
 	// used to determine any sort of deduping of msg sends
 	MarkOutgoingMsgComplete(context.Context, Msg, MsgStatus)
 
+	// SetFlowSessionTimeoutByMsgId If the flow session for a given msg ID is waiting, set its timeout
+	SetFlowSessionTimeoutByMsgId(context.Context, MsgID) error
+
 	// Check if external ID has been seen in a period
 	CheckExternalIDSeen(Msg) Msg
 
