@@ -6,18 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi"
+	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/backends/rapidpro"
+	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/urns"
 	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/nyaruka/courier"
-	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/utils"
-	"github.com/nyaruka/gocommon/urns"
 
 	validator "gopkg.in/go-playground/validator.v9"
 )
@@ -173,7 +172,14 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 
 	cid, err := strconv.ParseInt(payload.MessageID, 10, 64)
 
-	status := h.Backend().NewMsgStatusForID(channel, courier.NewMsgID(cid), statusMapping[payload.Status])
+	courierStatus := statusMapping[payload.Status]
+	id := courier.NewMsgID(cid)
+
+	if courierStatus == courier.MsgSent {
+		_ = h.Backend().SetFlowSessionTimeoutByMsgId(ctx, id)
+	}
+
+	status := h.Backend().NewMsgStatusForID(channel, id, courierStatus)
 
 	return handlers.WriteMsgStatusAndResponse(ctx, h, channel, status, w, r)
 }

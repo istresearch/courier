@@ -250,6 +250,22 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 	}
 }
 
+// Joins the flow session and gets the last event of the last run and checks if it is a msg_wait event
+const updateFlowSessionTimeoutByMsgID = `
+update flows_flowsession sess_orig 
+	set timeout_on=(NOW() + (sess.output::json->'runs'->-1->'events'->-1->>'timeout_seconds')::int * interval '1 second')
+from flows_flowsession as sess
+	left join msgs_msg msg on sess.current_flow_id=msg.flow_id
+where msg.id=$1 and sess.status='W'
+  and sess.output::json->'runs'->-1->'events'->-1->>'type' = 'msg_wait'
+and sess_orig.id=sess.id;
+`
+
+func (b *backend) SetFlowSessionTimeoutByMsgId(ctx context.Context, id courier.MsgID) error {
+	_, err := b.db.ExecContext(ctx, updateFlowSessionTimeoutByMsgID, id)
+	return err
+}
+
 // WriteMsg writes the passed in message to our store
 func (b *backend) WriteMsg(ctx context.Context, m courier.Msg) error {
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
