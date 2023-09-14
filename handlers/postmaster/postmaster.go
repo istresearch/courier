@@ -175,8 +175,11 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 	courierStatus := statusMapping[payload.Status]
 	id := courier.NewMsgID(cid)
 
-	if courierStatus == courier.MsgSent {
-		_ = h.Backend().SetFlowSessionTimeoutByMsgId(ctx, id)
+	// Do both sent and delivered, so the timeout is a bit more reliable
+	if courierStatus == courier.MsgSent || courierStatus == courier.MsgDelivered {
+		if err = h.Backend().SetFlowSessionTimeoutByMsgId(ctx, id); err != nil {
+			h.logger.WithFields(logrus.Fields{"message_id": id}).WithError(err).Error("Could not set message timeout")
+		}
 	}
 
 	status := h.Backend().NewMsgStatusForID(channel, id, courierStatus)

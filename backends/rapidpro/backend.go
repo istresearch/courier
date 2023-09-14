@@ -250,7 +250,7 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 	}
 }
 
-// Joins the flow session and gets the last event of the last run and checks if it is a msg_wait event
+// Joins the flow session and gets the last event of the last run and checks if it is a msg_wait event and update timeout.
 const updateFlowSessionTimeoutByMsgID = `
 update flows_flowsession sess_orig 
 	set timeout_on=(NOW() + (sess.output::json->'runs'->-1->'events'->-1->>'timeout_seconds')::int * interval '1 second')
