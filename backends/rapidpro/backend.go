@@ -261,8 +261,23 @@ where msg.id=$1 and sess.status='W'
 and sess_orig.id=sess.id;
 `
 
+const getSessionData = `
+select sess.output, sess.status
+from flows_flowsession as sess
+         join msgs_msg msg on sess.current_flow_id=msg.flow_id
+where msg.id=$1;
+`
+
 func (b *backend) SetFlowSessionTimeoutByMsgId(ctx context.Context, id courier.MsgID) error {
-	_, err := b.db.ExecContext(ctx, updateFlowSessionTimeoutByMsgID, id)
+	rows, err := b.db.QueryContext(ctx, getSessionData, id)
+	for rows.Next() {
+		var output string
+		var status string
+		err = rows.Scan(&output, &status)
+		logrus.WithField("output", output).WithField("status", status).Info("session_data_output")
+	}
+
+	_, err = b.db.ExecContext(ctx, updateFlowSessionTimeoutByMsgID, id)
 	return err
 }
 
