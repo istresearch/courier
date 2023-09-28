@@ -305,6 +305,15 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		return "", err
 	}
 
+	// Allow non-standard S3 URLs to be used.
+	if len(b.config.S3BucketUrlFormat) > 0 {
+		if !strings.HasPrefix(path, "/") {
+			path = fmt.Sprintf("/%s", path)
+		}
+
+		s3URL = fmt.Sprintf(b.config.S3BucketUrlFormat, b.config.S3MediaBucket) + path
+	}
+
 	// return our new media URL, which is prefixed by our content type
 	return fmt.Sprintf("%s:%s", mimeType, s3URL), nil
 }
