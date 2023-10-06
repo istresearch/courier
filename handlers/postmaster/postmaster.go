@@ -252,6 +252,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set(HEADER_API, apiKey)
 
+		logrus.WithFields(logrus.Fields{
+			"msg_urn": msg.URN().Path(),
+			"msg_id":  msg.ID(),
+		}).Info("Sending message to PostOffice")
+
 		rr, err := utils.MakeHTTPRequest(req)
 
 		// record our status and log
@@ -260,11 +265,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if err != nil {
 			logrus.WithField("req.url", req.URL).
 				WithField("status", rr.Status).
-				WithError(err).Error("PO req fail")
+				WithError(err).Error("PostOffice request failed")
 			return status, err
 		}
 	}
 
+	// We use pending so it remains in outgoing... for now.
 	status.SetStatus(courier.MsgPending)
 
 	return status, nil
