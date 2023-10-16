@@ -13,7 +13,7 @@ type PurgeHandler struct {
 	server Server
 }
 
-func NewPurgeHandler(s Server) *PurgeHandler{
+func NewPurgeHandler(s Server) *PurgeHandler {
 	p := new(PurgeHandler)
 	p.server = s
 
@@ -37,6 +37,8 @@ func (p *PurgeHandler) PurgeChannel(w http.ResponseWriter, r *http.Request) {
 		WriteDataResponse(context.Background(), w, http.StatusBadRequest, "could not find channel", nil)
 		return
 	}
+
+	logrus.WithField("channel_id", channel.UUID()).Info("Purging channel")
 
 	queues, err := p.server.Backend().GetCurrentQueuesForChannel(context.Background(), uuid)
 
