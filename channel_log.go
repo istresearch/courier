@@ -14,6 +14,8 @@ import (
 // NilStatusCode is used when we have an error before even sending anything
 const NilStatusCode int = 417
 
+var sanitizeSecretsRegexp *regexp.Regexp
+
 // NewChannelLog creates a new channel log for the passed in channel, id, and request and response info
 func NewChannelLog(description string, channel Channel, msgID MsgID, method string, url string, statusCode int,
 	request string, response string, elapsed time.Duration, err error) *ChannelLog {
@@ -45,9 +47,11 @@ func sanitizeSecrets(body string) string {
 		pattern = "(?:Po-Api-Key:.+\\n|X-Api-Key:.+\\n|Authorization:.+\\n|Token:.+\\n)+"
 	}
 
-	re := regexp.MustCompile(pattern)
+	if sanitizeSecretsRegexp == nil {
+		sanitizeSecretsRegexp = regexp.MustCompile(pattern)
+	}
 
-	return re.ReplaceAllString(body, "")
+	return sanitizeSecretsRegexp.ReplaceAllString(body, "")
 }
 
 func sanitizeBody(body string) string {
