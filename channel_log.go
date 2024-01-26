@@ -40,6 +40,7 @@ func NewChannelLog(description string, channel Channel, msgID MsgID, method stri
 	}
 }
 
+// PE-230 Request Sanitization
 func sanitizeSecrets(body string) string {
 	pattern, exists := os.LookupEnv("COURIER_SANITIZE_PATTERN")
 
