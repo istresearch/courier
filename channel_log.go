@@ -2,6 +2,8 @@ package courier
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,11 +31,23 @@ func NewChannelLog(description string, channel Channel, msgID MsgID, method stri
 		URL:         url,
 		StatusCode:  statusCode,
 		Error:       errString,
-		Request:     sanitizeBody(request),
+		Request:     sanitizeSecrets(sanitizeBody(request)),
 		Response:    sanitizeBody(response),
 		CreatedOn:   time.Now(),
 		Elapsed:     elapsed,
 	}
+}
+
+func sanitizeSecrets(body string) string {
+	pattern, exists := os.LookupEnv("COURIER_SANITIZE_PATTERN")
+
+	if !exists {
+		pattern = "(?:Po-Api-Key:.+\\n|X-Api-Key:.+\\n|Authorization:.+\\n|Token:.+\\n)+"
+	}
+
+	re := regexp.MustCompile(pattern)
+
+	return re.ReplaceAllString(body, "")
 }
 
 func sanitizeBody(body string) string {
@@ -61,7 +75,7 @@ func NewChannelLogFromRR(description string, channel Channel, msgID MsgID, rr *u
 		Method:      rr.Method,
 		URL:         rr.URL,
 		StatusCode:  rr.StatusCode,
-		Request:     sanitizeBody(rr.Request),
+		Request:     sanitizeSecrets(sanitizeBody(rr.Request)),
 		Response:    sanitizeBody(rr.Response),
 		CreatedOn:   time.Now(),
 		Elapsed:     rr.Elapsed,
