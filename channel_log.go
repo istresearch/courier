@@ -45,7 +45,7 @@ func sanitizeSecrets(body string) string {
 	pattern, exists := os.LookupEnv("COURIER_SANITIZE_PATTERN")
 
 	if !exists {
-		pattern = "(?:Po-Api-Key:.+\\n|X-Api-Key:.+\\n|Authorization:.+\\n|Token:.+\\n)+"
+		pattern = "(?:^Po-Api-Key:.+\\n|^X-Api-Key:.+\\n|^Authorization:.+\\n|^Token:.+\\n)+"
 	}
 
 	if sanitizeSecretsRegexp == nil {
