@@ -1,28 +1,38 @@
-name: build image
+name: "Tag Release"
 
 on:
   push:
-    branches-ignore:
+    branches:
       - main
       - master
-    tags:
-      - 'v*'
 
 jobs:
   build_cfg:
     runs-on: ubuntu-latest
-    environment: default
     outputs:
       VERSION_STR: ${{ steps.config_step.outputs.VERSION_STR }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Determine Version"
+      - name: "Create Version STR"
         id: config_step
         run: |-
-          VERSION_STR=$(cat VERSION)          
-          echo "::notice::Version STR=${VERSION_STR}"
+          VER_BUILD=$(date +%-H%M)
+          VERSION_STR="v$(date +%y).$(date +%-m).$(date +%-d)-${VER_BUILD:0:3}"
           echo "VERSION_STR=${VERSION_STR}" >> $GITHUB_OUTPUT
+          echo "::notice::Version STR=${VERSION_STR}"
+
+      - name: "Create Release"
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.config_step.outputs.VERSION_STR }}
+          release_name: ${{ steps.config_step.outputs.VERSION_STR }}
+          generate_release_notes: true
+          target_commitish: ${{ github.ref_name }}
   #endjob build_cfg
 
   trigger-build:

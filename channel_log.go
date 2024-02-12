@@ -2,6 +2,8 @@ package courier
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 
 // NilStatusCode is used when we have an error before even sending anything
 const NilStatusCode int = 417
+
+var sanitizeSecretsRegexp *regexp.Regexp
 
 // NewChannelLog creates a new channel log for the passed in channel, id, and request and response info
 func NewChannelLog(description string, channel Channel, msgID MsgID, method string, url string, statusCode int,
@@ -29,11 +33,26 @@ func NewChannelLog(description string, channel Channel, msgID MsgID, method stri
 		URL:         url,
 		StatusCode:  statusCode,
 		Error:       errString,
-		Request:     sanitizeBody(request),
+		Request:     sanitizeSecrets(sanitizeBody(request)),
 		Response:    sanitizeBody(response),
 		CreatedOn:   time.Now(),
 		Elapsed:     elapsed,
 	}
+}
+
+// PE-230 Request Sanitization
+func sanitizeSecrets(body string) string {
+	pattern, exists := os.LookupEnv("COURIER_SANITIZE_PATTERN")
+
+	if !exists {
+		pattern = "(?:^Po-Api-Key:.+\\n|^X-Api-Key:.+\\n|^Authorization:.+\\n|^Token:.+\\n)+"
+	}
+
+	if sanitizeSecretsRegexp == nil {
+		sanitizeSecretsRegexp = regexp.MustCompile(pattern)
+	}
+
+	return sanitizeSecretsRegexp.ReplaceAllString(body, "")
 }
 
 func sanitizeBody(body string) string {
@@ -61,7 +80,7 @@ func NewChannelLogFromRR(description string, channel Channel, msgID MsgID, rr *u
 		Method:      rr.Method,
 		URL:         rr.URL,
 		StatusCode:  rr.StatusCode,
-		Request:     sanitizeBody(rr.Request),
+		Request:     sanitizeSecrets(sanitizeBody(rr.Request)),
 		Response:    sanitizeBody(rr.Response),
 		CreatedOn:   time.Now(),
 		Elapsed:     rr.Elapsed,
