@@ -18,15 +18,18 @@ jobs:
       - name: "Determine Version"
         id: config_step
         run: |-
-          VER_BUILD=$(date +%H%M)
-          # limit to only first 3 chars
-          VER_BUILD=${VER_BUILD:0:3}
-          # 'strict' semver segments cannot start with 0
-          VERSION_NUM="$(date +%y).$(date +%-m).$(date +%-d).${VER_BUILD#0}"
-          # recreate as INT, leaving 0's in place; creates a 'reasonable' 32-bit signed int.
-          VERSION_INT="$(date +%y)$(date +%m)$(date +%d)${VER_BUILD}"
-
-          VERSION_STR=${VERSION_NUM}
+          if [[ ${{ github.ref_name }} =~ ^(v)([[:digit:]]+\..*)$ ]]; then
+            VERSION_STR=${BASH_REMATCH[2]}
+          else          
+            VER_BUILD=$(date +%H%M)
+            # limit to only first 3 chars
+            VER_BUILD=${VER_BUILD:0:3}
+            # 'strict' semver segments cannot start with 0
+            VERSION_NUM="$(date +%y).$(date +%-m).$(date +%-d).${VER_BUILD#0}"
+            # recreate as INT, leaving 0's in place; creates a 'reasonable' 32-bit signed int.
+            VERSION_INT="$(date +%y)$(date +%m)$(date +%d)${VER_BUILD}"
+            VERSION_STR=${VERSION_NUM}
+          fi
           echo "VERSION_STR=${VERSION_STR}" >> $GITHUB_OUTPUT
           echo "::notice::Version STR=${VERSION_STR}"
   #endjob build_cfg
