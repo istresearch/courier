@@ -14,8 +14,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
       - name: "Create Version STR"
         id: config_step
         run: |-
@@ -53,7 +51,7 @@ jobs:
       SLACK_DEPLOY_MSG:
     steps:
       - name: "Trigger Container Build"
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.CI_WEBHOOK_TOKEN }}
           repository: istresearch/ci-docker
